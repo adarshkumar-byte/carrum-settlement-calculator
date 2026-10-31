@@ -43,4 +43,4 @@ If you already published the Firestore rules, re-publish `firestore.rules`; it n
 ## Updating the security rules
 `firestore.rules` was corrected (the first version blocked reads). If you published an older copy, open
 Firebase console → Firestore Database → **Rules**, replace everything with the current `firestore.rules`, and **Publish**.
-The rules are tested against the Firebase emulator: reads, writes, deletes, validation and the 8-character family-code minimum.
+The rules are tested against the Firebase emulator (38 checks: reads, writes, deletes, strict validation, blocked paths). See `SECURITY.md` for the full security checklist.
