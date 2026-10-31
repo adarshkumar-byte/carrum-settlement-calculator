@@ -6,6 +6,7 @@
 | **Family code** | The only "password". Anyone who has it can read, add and delete entries. Use the app's **Generate a strong code** button (about 100 bits, impossible to guess). Share it only in a private chat. |
 | **Firestore rules** (`firestore.rules`) | Only `families/<code>/expenses` and `families/<code>/budgets` are reachable; the code must be 8–60 characters; every document must have exactly the expected fields, types, lengths and a valid date; nothing else in the database can be read or written. Tested on the Firebase emulator (38 checks). |
 | **Content Security Policy** | The page may run scripts only from itself and `www.gstatic.com` (Firebase SDK), and may talk only to Firestore. Injected inline scripts, event handlers and calls to other sites are blocked. |
+| **Card-bill import** | PDFs and photos are read on the phone with libraries bundled in `vendor/` (nothing is downloaded or uploaded). Only the transactions you approve are saved, never the file, card number or name. The OCR engine is WebAssembly, so the Content Security Policy also allows `'wasm-unsafe-eval'` (it does not allow ordinary `eval`). |
 | **Output escaping** | Every value that comes from the database is HTML-escaped before it is shown. |
 | **CSV export** | Cells starting with `= + - @` are neutralised so a malicious note cannot run as a spreadsheet formula. |
 | **Anti-framing** | The app blanks itself if another website embeds it (clickjacking). |

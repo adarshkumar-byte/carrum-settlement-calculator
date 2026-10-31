@@ -49,3 +49,12 @@ The rules are tested against the Firebase emulator (38 checks: reads, writes, de
 - **📝 Entry:** (1) Income received, (2) Wallet transfer to a family member (wallet balances shown here), (3) Expense booking.
 - **📊 Analysis (MoM):** this month vs last month, 6-month trend, category split, detailed analysis, month history, compare any two months, CSV export/backup.
 The month picker and budget at the top apply to both pages. The app remembers the last page you used.
+
+## Import credit-card bill (PDF or photo)
+On the **Entry** page tap **💳 Import card bill**, choose the bill (PDF, photo or screenshot) and check the list:
+- PDF bills are read directly (exact). Photos and scanned PDFs use OCR (may misread digits - fix them in the list).
+- Password-protected PDFs: the app asks for the password; it is not saved.
+- Payments, refunds and cashback are skipped; purchases become normal expenses (marked 💳) in the right month, so Analysis and MoM include them.
+- Importing the same bill again (even as a photo) does not create duplicates: those lines show "Already added".
+- Categories are guessed from the merchant name; if you change one, the app remembers it for that merchant next time.
+- Everything happens on the phone. The file is never uploaded and is not stored.
