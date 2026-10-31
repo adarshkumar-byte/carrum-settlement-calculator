@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Only the expenses under a family code, and only with a reasonably long code.
+    match /families/{code}/expenses/{id} {
+      allow read, write: if code.size() >= 8
+        && (request.method == 'delete' || (
+             request.resource.data.keys().hasOnly(['note','amount','category','date','by','createdAt'])
+             && request.resource.data.amount is number
+             && request.resource.data.note is string
+             && request.resource.data.note.size() <= 100));
+    }
+  }
+}
