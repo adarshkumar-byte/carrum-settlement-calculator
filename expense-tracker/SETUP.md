@@ -31,3 +31,11 @@ Works on Android (Chrome) and iPhone (Safari). Both phones see one shared list, 
 - Works offline; entries sync when the phone is back online.
 - The family code is the only "password": keep it long and private.
 - Each entry shows who added it.
+
+## Monthly routine
+1. **Start of month:** pick the month at the top, type the budget (e.g. 30000), tap **Set**. Either of you can set or change it; it syncs to both phones.
+2. **Every day:** add each expense with a category. Use **Miscellaneous** for the unplanned stuff you want to track.
+3. **Anytime:** the top card shows Budget, Spent and Remaining (turns red when over budget) plus Miscellaneous spent and its share of total spending.
+4. **Month end:** tap **Export month (CSV)**. The file `expenses-YYYY-MM.csv` opens in Excel/Sheets with a summary (budget, spent, remaining, miscellaneous), a per-category table, and every expense. Export each month and compare the Miscellaneous figures.
+
+If you already published the Firestore rules, re-publish `firestore.rules`; it now also covers budgets.

@@ -10,5 +10,12 @@ service cloud.firestore {
              && request.resource.data.note is string
              && request.resource.data.note.size() <= 100));
     }
+
+    match /families/{code}/budgets/{month} {
+      allow read, write: if code.size() >= 8
+        && (request.method == 'delete' || (
+             request.resource.data.keys().hasOnly(['amount','by'])
+             && request.resource.data.amount is number));
+    }
   }
 }

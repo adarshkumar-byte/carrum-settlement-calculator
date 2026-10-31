@@ -1,5 +1,5 @@
 // Caches the app shell and the Firebase SDK so the app opens offline.
-const CACHE = 'expenses-v1';
+const CACHE = 'expenses-v2';
 const SHELL = ['./', 'index.html', 'firebase-config.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
