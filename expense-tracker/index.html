@@ -46,6 +46,16 @@
   .fill { height:100%; width:0; background:var(--ok); transition:width .3s; }
   .fill.over { background:var(--danger); }
   .neg { color:var(--danger); }
+  .tiles { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+  .tile { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px; }
+  .tile span { display:block; font-size:.72rem; color:var(--muted); }
+  .tile strong { font-size:1rem; }
+  .advice { margin-top:12px; padding:10px; border-radius:10px; background:var(--bg); border:1px solid var(--border); font-size:.9rem; }
+  .sub { margin:16px 0 6px; font-size:.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  table { width:100%; border-collapse:collapse; font-size:.85rem; }
+  th, td { text-align:right; padding:6px 4px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:500; }
   .empty { color:var(--muted); text-align:center; padding:12px; }
   .small { width:auto; padding:8px 12px; cursor:pointer; }
   .note { font-size:.85rem; color:var(--muted); margin:0 0 10px; }
@@ -114,6 +124,18 @@
   <div class="card">
     <strong>By category (whole month)</strong>
     <div id="breakdown"></div>
+  </div>
+
+  <div class="card" id="analysis">
+    <strong>📊 Analysis</strong>
+    <div class="tiles" id="tiles"></div>
+    <div id="advice" class="advice"></div>
+    <div class="sub">Daily spending</div>
+    <div id="daily"></div>
+    <div class="sub">Who spent how much</div>
+    <div id="byPerson"></div>
+    <div class="sub">Last 6 months</div>
+    <div id="history" style="overflow-x:auto"></div>
   </div>
 
   <div class="row">
@@ -267,6 +289,84 @@ function render() {
   $('breakdown').innerHTML = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
     `<div style="margin-top:10px"><div class="row" style="justify-content:space-between;margin:0"><span>${esc(k)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${v / max * 100}%"></div></div>`
   ).join('') || '<div class="empty">Nothing to show.</div>';
+  renderAnalysis(m, mi, spent, budget);
+}
+
+const daysIn = m => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); };
+const monthLabel = m => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, 1).toLocaleString('en-IN', { month: 'short', year: '2-digit' }); };
+
+function renderAnalysis(m, mi, spent, budget) {
+  const isCur = m === today().slice(0, 7);
+  const total = daysIn(m);
+  const elapsed = isCur ? Number(today().slice(8)) : total;
+  const left = total - elapsed;
+  const hasB = typeof budget === 'number';
+
+  // per-day totals
+  const perDay = Array(total).fill(0);
+  mi.forEach(x => { const d = Number((x.date || '').slice(8, 10)); if (d >= 1 && d <= total) perDay[d - 1] += Number(x.amount) || 0; });
+  const maxDay = Math.max(0, ...perDay);
+  const avg = elapsed ? spent / elapsed : 0;
+  const biggest = mi.reduce((b, x) => (!b || x.amount > b.amount ? x : b), null);
+  const topCat = Object.entries(mi.reduce((o, x) => (o[x.category] = (o[x.category] || 0) + x.amount, o), {})).sort((a, b) => b[1] - a[1])[0];
+
+  const tile = (l, v) => `<div class="tile"><span>${l}</span><strong>${v}</strong></div>`;
+  $('tiles').innerHTML = mi.length ? [
+    tile('Average per day', fmt(avg)),
+    tile('Highest day', maxDay ? `${fmt(maxDay)} (${perDay.indexOf(maxDay) + 1})` : '–'),
+    tile('Biggest expense', biggest ? `${fmt(biggest.amount)}` : '–'),
+    tile('Top category', topCat ? esc(topCat[0]) : '–'),
+    isCur ? tile('Projected month total', fmt(avg * total)) : tile('Days with spending', perDay.filter(v => v > 0).length + ' of ' + total),
+    tile('Entries', mi.length)
+  ].join('') : '';
+
+  // advice
+  let adv = '';
+  if (!mi.length) adv = 'Add some expenses to see analysis.';
+  else if (hasB && isCur) {
+    const rem = budget - spent;
+    const proj = avg * total;
+    if (rem < 0) adv = `⚠️ You are over budget by ${fmt(-rem)}.`;
+    else if (left === 0) adv = `Last day of the month: you have ${fmt(rem)} left from your budget.`;
+    else {
+      const safe = left > 0 ? rem / left : rem;
+      adv = `You can spend about <b>${fmt(safe)}/day</b> for the remaining ${left} day${left === 1 ? '' : 's'} to stay within budget. ` +
+            (proj > budget ? `⚠️ At your current pace (${fmt(avg)}/day) you will cross the budget by about ${fmt(proj - budget)}.` : `✅ At your current pace you will finish with about ${fmt(budget - proj)} left.`);
+    }
+  } else if (hasB) {
+    adv = spent > budget ? `Over budget by ${fmt(spent - budget)}.` : `Finished ${fmt(budget - spent)} under budget.`;
+  } else adv = 'Set a monthly budget above to get daily-limit advice.';
+  $('advice').innerHTML = adv;
+
+  // daily bars (inline SVG)
+  const W = 320, H = 90, bw = W / total;
+  $('daily').innerHTML = spent ? `<svg viewBox="0 0 ${W} ${H + 14}" width="100%" role="img" aria-label="Daily spending">` +
+    perDay.map((v, i) => {
+      const h = maxDay ? v / maxDay * H : 0;
+      return `<rect x="${i * bw + 1}" y="${H - h}" width="${Math.max(1, bw - 2)}" height="${h}" rx="2" fill="var(--accent)"><title>Day ${i + 1}: ${fmt(v)}</title></rect>`;
+    }).join('') +
+    [1, Math.ceil(total / 2), total].map(d => `<text x="${(d - 0.5) * bw}" y="${H + 12}" font-size="9" text-anchor="middle" fill="var(--muted)">${d}</text>`).join('') +
+    `</svg>` : '<div class="empty">No data.</div>';
+
+  // per person
+  const byP = {};
+  mi.forEach(x => { const k = x.by || 'Unknown'; byP[k] = (byP[k] || 0) + x.amount; });
+  const maxP = Math.max(0, ...Object.values(byP));
+  $('byPerson').innerHTML = Object.entries(byP).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+    `<div style="margin-top:8px"><div class="row" style="justify-content:space-between;margin:0"><span>${esc(k)}</span><span>${fmt(v)} · ${Math.round(v / spent * 100)}%</span></div><div class="bar" style="width:${v / maxP * 100}%"></div></div>`
+  ).join('') || '<div class="empty">No data.</div>';
+
+  // last 6 months
+  const [cy, cm] = m.split('-').map(Number);
+  const rows = [];
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(cy, cm - 1 - i, 1);
+    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+    const its = monthItems(key);
+    rows.push({ key, spent: sumOf(its), misc: sumOf(its.filter(x => isMisc(x.category))), budget: budgets[key], n: its.length });
+  }
+  $('history').innerHTML = `<table><tr><th>Month</th><th>Budget</th><th>Spent</th><th>Misc</th><th>Left</th></tr>` +
+    rows.map(r => `<tr><td>${monthLabel(r.key)}</td><td>${typeof r.budget === 'number' ? fmt(r.budget) : '–'}</td><td>${r.n ? fmt(r.spent) : '–'}</td><td>${r.n ? fmt(r.misc) : '–'}</td><td class="${typeof r.budget === 'number' && r.budget - r.spent < 0 ? 'neg' : ''}">${typeof r.budget === 'number' ? fmt(r.budget - r.spent) : '–'}</td></tr>`).join('') + '</table>';
 }
 
 $('setupForm').addEventListener('submit', e => {
