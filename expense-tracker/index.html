@@ -17,6 +17,7 @@
   @media (prefers-color-scheme: dark) {
     :root { --bg:#12151c; --card:#1b1f2a; --text:#e8eaf0; --muted:#8d95a8; --accent:#748ffc; --danger:#f06595; --border:#2a3040; --ok:#69db7c; --warn:#ffa94d; --accent2:#9775fa; }
   }
+  :root { color-scheme: light dark; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text);
          padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
@@ -106,7 +107,7 @@
     <p class="note">Use the <b>same family code</b> on both phones to share one list. Pick something long and hard to guess; anyone with the code can see the expenses.</p>
     <form id="setupForm">
       <input class="full" id="userName" placeholder="Your name (e.g. Adarsh)" required maxlength="30">
-      <input class="full" id="familyCode" placeholder="Family code (e.g. carrum-7k2x9-blue-tiger)" required minlength="8" maxlength="60" autocapitalize="none" autocomplete="off">
+      <input class="full" id="familyCode" placeholder="Family code (e.g. carrum-7k2x9-blue-tiger)" required pattern="[A-Za-z0-9_\-]{8,60}" title="8-60 characters: letters, numbers, - or _ (no spaces)" autocapitalize="none" autocomplete="off">
       <button class="primary full" type="submit">Save</button>
     </form>
   </div>
@@ -235,13 +236,16 @@ async function saveCsv(name, lines) {
   a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
+const dict = () => Object.create(null); // map keyed by user text (safe for names like 'constructor')
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
 
 // ---- identity: name + family code (invite link: #family=CODE) ----
+const validCode = c => /^[A-Za-z0-9_-]{8,60}$/.test(c);
 const hashCode = new URLSearchParams(location.hash.slice(1)).get('family');
-if (hashCode) { LS.set('familyCode', hashCode.trim()); history.replaceState(null, '', location.pathname + location.search); }
+if (hashCode) { if (validCode(hashCode.trim())) LS.set('familyCode', hashCode.trim()); history.replaceState(null, '', location.pathname + location.search); }
 let userName = LS.get('userName') || '';
 let familyCode = LS.get('familyCode') || '';
+if (familyCode && !validCode(familyCode)) familyCode = ''; // bad/old value -> ask again
 const syncConfigured = !!firebaseConfig.apiKey;
 
 // ---- stores: Firestore (shared) or localStorage (fallback) ----
@@ -251,7 +255,10 @@ const isMove = x => String(x.category || '').startsWith('@');
 const moveKind = x => (x.category === '@income' ? 'income' : 'transfer');
 const moveTo = x => String(x.category || '').slice('@transfer:'.length);
 const norm = v => String(v || '').trim().toLowerCase();
-function setAll(list) { items = list.filter(x => !isMove(x)); moves = list.filter(isMove); render(); }
+function setAll(list) {
+  list = list.map(x => ({ ...x, amount: Number(x.amount) || 0, note: x.note == null ? '' : String(x.note), date: String(x.date || ''), category: String(x.category || 'Miscellaneous') }));
+  items = list.filter(x => !isMove(x)); moves = list.filter(isMove); render();
+}
 let store = null;
 
 function localStore() {
@@ -263,14 +270,14 @@ function localStore() {
   return {
     label: 'Local only',
     subscribe(cb) { cb(data.slice()); },
-    add(x) { data.push(x); persist(); this.subscribe(cb2); },
+    add(x) { data.push(x); persist(); if (syncConfigured) LS.set('migrated.v2', ''); this.subscribe(cb2); },
     remove(id) { data = data.filter(d => d.id !== id); persist(); this.subscribe(cb2); },
     subscribeBudgets(cb) { cb(readB()); },
     setBudget(month, amount, by) { const b = readB(); b[month] = amount; LS.set('budgets.v1', JSON.stringify(b)); this.subscribeBudgets(cbB); }
   };
 }
 let cb2 = setAll;
-let budgets = {};
+let budgets = dict();
 let cbB = b => { budgets = b; render(); };
 
 async function firestoreStore(code) {
@@ -294,7 +301,7 @@ async function firestoreStore(code) {
     add(x) { const { id, ...rest } = x; return fs.setDoc(fs.doc(col, id), { ...rest, createdAt: fs.serverTimestamp() }); },
     remove(id) { return fs.deleteDoc(fs.doc(col, id)); },
     subscribeBudgets(cb) {
-      return fs.onSnapshot(bcol, snap => { const b = {}; snap.docs.forEach(d => b[d.id] = Number(d.data().amount) || 0); cb(b); }, err => console.error(err));
+      return fs.onSnapshot(bcol, snap => { const b = dict(); snap.docs.forEach(d => b[d.id] = Number(d.data().amount) || 0); cb(b); }, err => console.error(err));
     },
     setBudget(month, amount, by) { return fs.setDoc(fs.doc(bcol, month), { amount, by }); }
   };
@@ -347,6 +354,15 @@ function offerMigration() {
 setTimeout(offerMigration, 2500);
 
 // ---- UI ----
+let defaultDate = today();
+function refreshDates() {
+  const t = today();
+  if (t === defaultDate) return;
+  if ($('date').value === defaultDate) $('date').value = t;
+  if ($('moveDate').value === defaultDate) $('moveDate').value = t;
+  defaultDate = t; render();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDates(); });
 $('date').value = today();
 $('month').value = today().slice(0, 7);
 $('cmpB').value = today().slice(0, 7);
@@ -354,7 +370,7 @@ $('cmpA').value = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getM
 [...$('category').options].forEach(o => $('filterCat').add(new Option(o.value, o.value)));
 
 const CAT_COLOR = { Food:'#f59f00', Transport:'#339af0', Bills:'#845ef7', Shopping:'#f06595', Health:'#20c997', Entertainment:'#fab005', Miscellaneous:'#fa5252', Other:'#fa5252' };
-const catColor = c => CAT_COLOR[c] || '#868e96';
+const catColor = c => (Object.prototype.hasOwnProperty.call(CAT_COLOR, c) ? CAT_COLOR[c] : '#868e96');
 const PERSON_COLORS = ['#3b5bdb', '#e64980', '#12b886', '#f08c00'];
 const MISC = 'Miscellaneous';
 const isMisc = c => c === MISC || c === 'Other'; // 'Other' = older entries
@@ -392,7 +408,7 @@ function render() {
       <div><span class="amt">${fmt(Number(x.amount) || 0)}</span><button class="del" data-id="${esc(x.id)}" aria-label="Delete">✕</button></div>
     </li>`).join('') : '<div class="empty">No expenses for this month.</div>';
 
-  const by = {};
+  const by = dict();
   mi.forEach(x => by[x.category] = (by[x.category] || 0) + (Number(x.amount) || 0));
   const max = Math.max(0, ...Object.values(by));
   $('breakdown').innerHTML = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
@@ -414,11 +430,11 @@ function canonName(n) {
 
 function renderWallets(m) {
   // Per person: balance = income + received - sent - own expenses, counted from that person's first income/transfer.
-  const people = new Map(), start = {};
+  const people = new Map(), start = dict();
   const touch = (n, d) => { const k = norm(n); if (!k) return; if (!people.has(k)) people.set(k, String(n).trim()); if (!start[k] || d < start[k]) start[k] = d; };
   moves.forEach(x => { touch(x.by, x.date); if (moveKind(x) === 'transfer') touch(moveTo(x), x.date); });
   [...items, ...moves].forEach(x => { const k = norm(x.by); if (people.has(k)) people.set(k, String(x.by).trim()); });
-  const st = {}; people.forEach((_, k) => st[k] = { bal: 0, inc: 0, recv: 0, sent: 0, spent: 0 });
+  const st = dict(); people.forEach((_, k) => st[k] = { bal: 0, inc: 0, recv: 0, sent: 0, spent: 0 });
   const upto = d => (d || '').slice(0, 7) <= m, inMonth = d => (d || '').startsWith(m);
   moves.forEach(x => {
     const a = Number(x.amount) || 0, by = norm(x.by);
@@ -457,12 +473,12 @@ function renderAnalysis(m, mi, spent, budget) {
 
   // per-day totals (and per category for the stacked chart)
   const perDay = Array(total).fill(0);
-  const perDayCat = Array.from({ length: total }, () => ({}));
+  const perDayCat = Array.from({ length: total }, () => dict());
   mi.forEach(x => { const d = Number((x.date || '').slice(8, 10)); if (d >= 1 && d <= total) { const a = Number(x.amount) || 0; perDay[d - 1] += a; perDayCat[d - 1][x.category] = (perDayCat[d - 1][x.category] || 0) + a; } });
   const maxDay = Math.max(0, ...perDay);
   const avg = elapsed ? spent / elapsed : 0;
   const biggest = mi.reduce((b, x) => (!b || x.amount > b.amount ? x : b), null);
-  const topCat = Object.entries(mi.reduce((o, x) => (o[x.category] = (o[x.category] || 0) + x.amount, o), {})).sort((a, b) => b[1] - a[1])[0];
+  const topCat = Object.entries(mi.reduce((o, x) => (o[x.category] = (o[x.category] || 0) + x.amount, o), dict())).sort((a, b) => b[1] - a[1])[0];
 
   const tile = (l, v) => `<div class="tile"><span>${l}</span><strong>${v}</strong></div>`;
   $('tiles').innerHTML = mi.length ? [
@@ -508,7 +524,7 @@ function renderAnalysis(m, mi, spent, budget) {
     `</svg><div class="legend">${catsPresent.map(c => `<span><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}</span>`).join('')}</div>` : '<div class="empty">No data.</div>';
 
   // per person
-  const byP = {};
+  const byP = dict();
   mi.forEach(x => { const k = x.by || 'Unknown'; byP[k] = (byP[k] || 0) + x.amount; });
   const maxP = Math.max(0, ...Object.values(byP));
   $('byPerson').innerHTML = Object.entries(byP).sort((a, b) => b[1] - a[1]).map(([k, v], i) =>
@@ -532,7 +548,7 @@ function renderCompare() {
   const A = $('cmpA').value, B = $('cmpB').value;
   if (!validMonth(A) || !validMonth(B)) { $('cmpOut').innerHTML = '<div class="empty">Pick two months.</div>'; return; }
   const ia = monthItems(A), ib = monthItems(B);
-  const sumBy = its => its.reduce((o, x) => (o[x.category] = (o[x.category] || 0) + (Number(x.amount) || 0), o), {});
+  const sumBy = its => its.reduce((o, x) => (o[x.category] = (o[x.category] || 0) + (Number(x.amount) || 0), o), dict());
   const ca = sumBy(ia), cb = sumBy(ib);
   const cats = [...new Set([...Object.keys(ca), ...Object.keys(cb)])].sort((x, y) => ((cb[y] || 0) + (ca[y] || 0)) - ((cb[x] || 0) + (ca[x] || 0)));
   const delta = (a, b, neutral) => {
@@ -566,7 +582,7 @@ $('form').addEventListener('submit', async e => {
   const x = { id: uid(), note, amount: parseFloat(amt), category: $('category').value, date: $('date').value, by: userName };
   if (!note || !(x.amount > 0) || !x.date) return;
   $('note').value = ''; $('amount').value = ''; $('note').focus();
-  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); $('note').value = note; $('amount').value = amt; alert('Could not save this expense. Please try again.'); }
+  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); if (!$('note').value) $('note').value = note; if (!$('amount').value) $('amount').value = amt; alert('Could not save this expense. Please try again.'); }
 });
 $('moveType').addEventListener('change', () => { $('moveTo').hidden = $('moveType').value !== 'transfer'; $('moveTo').required = !$('moveTo').hidden; });
 $('moveTo').value = LS.get('lastTo') || 'Kajal';
@@ -580,7 +596,7 @@ $('moveForm').addEventListener('submit', async e => {
   const x = { id: uid(), note: $('moveNote').value.trim(), amount: amt, category: type === 'income' ? '@income' : '@transfer:' + canonName(to), date: $('moveDate').value, by: userName };
   if (type === 'transfer') { if (norm(to) === norm(userName)) { alert('Transfer to someone else (not yourself).'); return; } LS.set('lastTo', to); }
   $('moveAmt').value = ''; $('moveNote').value = '';
-  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); $('moveAmt').value = amt; alert('Could not save. Please try again.'); }
+  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); if (!$('moveAmt').value) $('moveAmt').value = amt; alert('Could not save. Please try again.'); }
 });
 $('moveList').addEventListener('click', async e => {
   const id = e.target.dataset.id;
@@ -622,7 +638,7 @@ $('export').addEventListener('click', () => {
   const m = $('month').value, mi = monthItems(m).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const spent = sumOf(mi), budget = budgets[m], hasB = typeof budget === 'number';
   const misc = sumOf(mi.filter(x => isMisc(x.category)));
-  const by = {}; mi.forEach(x => by[x.category] = (by[x.category] || 0) + (Number(x.amount) || 0));
+  const by = dict(); mi.forEach(x => by[x.category] = (by[x.category] || 0) + (Number(x.amount) || 0));
   saveCsv(`expenses-${m}.csv`, [
     `Monthly report,${m}`,
     `Budget,${hasB ? budget : ''}`,
