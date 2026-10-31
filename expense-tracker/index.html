@@ -7,7 +7,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://www.gstatic.com; connect-src 'self' https://firestore.googleapis.com https://*.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval' https://www.gstatic.com; connect-src 'self' https://firestore.googleapis.com https://*.googleapis.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="strict-origin">
 <meta name="theme-color" content="#3b5bdb">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -206,6 +206,7 @@
 
     <div class="row" style="flex-wrap:wrap">
       <button class="small" id="share">Copy invite link</button>
+      <button class="small" id="importBtn">💳 Import card bill</button>
       <button class="small" id="settings">Settings</button>
     </div>
   </section>

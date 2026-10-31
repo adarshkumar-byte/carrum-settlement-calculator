@@ -522,5 +522,15 @@ $('exportAll').addEventListener('click', () => {
   ]);
 });
 
+// Import card bill: the importer (PDF reader + OCR) is loaded only when this button is tapped.
+$('importBtn').addEventListener('click', async () => {
+  if (!userName) { $('setup').hidden = false; $('userName').focus(); return; }
+  if (!store) { alert('Still connecting – please wait a moment and tap again.'); return; }
+  try {
+    const m = await import('./import.js');
+    m.openImport({ existingIds: new Set(items.map(x => x.id)), userName, add: x => store.add(x), categories: [...$('category').options].map(o => o.value) });
+  } catch (e) { console.error(e); alert('Could not open the importer.'); }
+});
+
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 start();
