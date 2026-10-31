@@ -87,22 +87,38 @@ async function firestoreStore(code) {
       return fs.onSnapshot(col, { includeMetadataChanges: true }, snap => {
         cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         onState && onState(snap.metadata.fromCache && !snap.metadata.hasPendingWrites ? 'offline' : 'online');
-      }, err => { console.error(err); onState && onState('error'); });
+      }, err => { console.error(err); onState && onState('error', err); });
     },
     add(x) { const { id, ...rest } = x; return fs.setDoc(fs.doc(col, id), { ...rest, createdAt: fs.serverTimestamp() }); },
     remove(id) { return fs.deleteDoc(fs.doc(col, id)); },
-    subscribeBudgets(cb) {
-      return fs.onSnapshot(bcol, snap => { const b = dict(); snap.docs.forEach(d => b[d.id] = Number(d.data().amount) || 0); cb(b); }, err => console.error(err));
+    subscribeBudgets(cb, onState) {
+      return fs.onSnapshot(bcol, snap => { const b = dict(); snap.docs.forEach(d => b[d.id] = Number(d.data().amount) || 0); cb(b); }, err => { console.error(err); onState && onState('error', err); });
     },
     setBudget(month, amount, by) { return fs.setDoc(fs.doc(bcol, month), { amount, by }); }
   };
 }
 
-function setStatus(state) {
-  const el = $('status');
-  el.className = 'status' + (state === 'online' ? ' on' : '');
-  el.textContent = { online: '● Synced', offline: '○ Offline – will sync later', error: '⚠ Sync error', local: 'Local only' }[state] || '';
+let lastError = null;
+function explainError(err) {
+  const code = err && err.code ? String(err.code) : '', msg = err && err.message ? String(err.message) : '';
+  let text;
+  if (code === 'permission-denied') text = 'Firebase is blocking the app (permission-denied).\n\nFix: open the Firebase console > Firestore Database > Rules, replace everything with the latest rules from the app\'s firestore.rules file, and tap Publish. Then close and reopen the app.';
+  else if (code === 'unavailable') text = 'The app cannot reach Firebase (unavailable).\n\nCheck your internet connection. If it keeps happening on good internet, a browser/network security setting may be blocking firestore.googleapis.com.';
+  else if (code === 'failed-precondition') text = 'The browser cannot use offline storage right now (failed-precondition).\n\nClose other copies of this app or tabs, then reopen it.';
+  else if (code === 'resource-exhausted') text = 'Firebase\'s free daily limit has been used up. It resets daily.';
+  else if (code === 'invalid-argument') text = 'Firebase did not accept the request (invalid-argument). Check that your family code has only letters, numbers, - and _.';
+  else if (/dynamically imported|import|Failed to fetch|Load failed|NetworkError/i.test(msg)) text = 'The Firebase library could not be loaded. Check your internet connection and reload.';
+  else text = 'Something went wrong while syncing.';
+  return text + '\n\nDetails: ' + (code || 'no code') + (msg ? ' - ' + msg.slice(0, 120) : '');
 }
+function setStatus(state, err) {
+  const el = $('status');
+  if (state === 'error') lastError = err || lastError;
+  el.className = 'status' + (state === 'online' ? ' on' : '');
+  el.textContent = { online: '● Synced', offline: '○ Offline – will sync later', error: '⚠ Sync error – tap for details', local: 'Local only' }[state] || '';
+  el.style.cursor = state === 'error' ? 'pointer' : '';
+}
+$('status').addEventListener('click', () => { if ($('status').textContent.startsWith('⚠')) alert(explainError(lastError)); });
 
 async function start() {
   const needSetup = !userName || (syncConfigured && !familyCode);
@@ -120,10 +136,10 @@ async function start() {
     try {
       store = await firestoreStore(familyCode);
       store.subscribe(setAll, setStatus);
-      store.subscribeBudgets(cbB);
+      store.subscribeBudgets(cbB, setStatus);
     } catch (e) {
       console.error(e);
-      setStatus('error');
+      setStatus('error', e);
       store = localStore(); store.subscribe(cb2); store.subscribeBudgets(cbB);
     }
   } else {
@@ -419,7 +435,7 @@ $('form').addEventListener('submit', async e => {
   const x = { id: uid(), note, amount: parseFloat(amt), category: $('category').value, date: $('date').value, by: userName };
   if (!note || !(x.amount > 0) || !x.date) return;
   $('note').value = ''; $('amount').value = ''; $('note').focus();
-  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); if (!$('note').value) $('note').value = note; if (!$('amount').value) $('amount').value = amt; alert('Could not save this expense. Please try again.'); }
+  try { await store.add(x); } catch (err) { console.error(err); setStatus('error', err); if (!$('note').value) $('note').value = note; if (!$('amount').value) $('amount').value = amt; alert('Could not save this expense. Please try again.'); }
 });
 $('trTo').value = LS.get('lastTo') || 'Kajal';
 $('incDate').value = today();
@@ -432,14 +448,14 @@ async function addMove(type, amtEl, dateEl, noteEl, to) {
   if (type === 'transfer') { if (norm(to) === norm(userName)) { alert('Transfer to someone else (not yourself).'); return; } LS.set('lastTo', to); }
   const x = { id: uid(), note: noteEl.value.trim(), amount: amt, category: type === 'income' ? '@income' : '@transfer:' + canonName(to), date: dateEl.value, by: userName };
   amtEl.value = ''; noteEl.value = '';
-  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); if (!amtEl.value) amtEl.value = amt; alert('Could not save. Please try again.'); }
+  try { await store.add(x); } catch (err) { console.error(err); setStatus('error', err); if (!amtEl.value) amtEl.value = amt; alert('Could not save. Please try again.'); }
 }
 $('incForm').addEventListener('submit', e => { e.preventDefault(); addMove('income', $('incAmt'), $('incDate'), $('incNote')); });
 $('trForm').addEventListener('submit', e => { e.preventDefault(); addMove('transfer', $('trAmt'), $('trDate'), $('trNote'), $('trTo').value.trim()); });
 const delMove = async e => {
   const id = e.target.dataset.id;
   if (!id || !confirm('Delete this entry?')) return;
-  try { await store.remove(id); } catch (err) { console.error(err); setStatus('error'); }
+  try { await store.remove(id); } catch (err) { console.error(err); setStatus('error', err); }
 };
 $('incList').addEventListener('click', delMove);
 $('trList').addEventListener('click', delMove);
@@ -457,7 +473,7 @@ showTab(LS.get('tab') === 'analysis' ? 'analysis' : 'entry');
 $('list').addEventListener('click', async e => {
   const id = e.target.dataset.id;
   if (!id || !confirm('Delete this expense?')) return;
-  try { await store.remove(id); } catch (err) { console.error(err); setStatus('error'); }
+  try { await store.remove(id); } catch (err) { console.error(err); setStatus('error', err); }
 });
 $('month').addEventListener('change', () => { $('budgetInput').value = ''; render(); });
 $('prevM').addEventListener('click', () => { $('month').value = shiftMonth($('month').value || curMonth(), -1); $('budgetInput').value = ''; render(); });
@@ -480,7 +496,7 @@ $('budgetSave').addEventListener('click', async () => {
   if (!(v >= 0 && v < 1e9)) { alert('Enter the budget amount for this month (less than 100 crore).'); return; }
   if (!userName) { $('setup').hidden = false; $('userName').focus(); return; }
   if (!store) { alert('Still connecting – try again in a moment.'); return; }
-  try { await store.setBudget($('month').value, v, userName); } catch (err) { console.error(err); setStatus('error'); }
+  try { await store.setBudget($('month').value, v, userName); } catch (err) { console.error(err); setStatus('error', err); }
 });
 $('filterCat').addEventListener('change', render);
 
