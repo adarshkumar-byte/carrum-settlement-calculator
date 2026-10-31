@@ -97,7 +97,9 @@
   .gnum { display:inline-flex; width:24px; height:24px; border-radius:50%; align-items:center; justify-content:center; background:var(--accent); color:#fff; font-size:.8rem; }
   #pageEntry .card.group:nth-child(1) { border-top:4px solid var(--ok); }
   #pageEntry .card.group:nth-child(2) { border-top:4px solid var(--accent); }
-  #pageEntry .card.group:nth-child(3) { border-top:4px solid var(--warn); }
+  #pageEntry .card.group:nth-child(4) { border-top:4px solid var(--warn); }
+  .card.budget .row { margin-bottom:10px; }
+  .card.budget .totals { margin-top:0; }
   svg [data-month] { cursor:pointer; }
   .empty { color:var(--muted); text-align:center; padding:12px; }
   .small { width:auto; padding:8px 12px; cursor:pointer; }
@@ -134,24 +136,12 @@
     <p class="note" style="margin:0">Sync isn't configured yet, so this phone keeps its own separate list. See SETUP.md to turn on sharing.</p>
   </div>
 
-  <div class="card hero">
-    <div class="row">
+  <div class="card hero monthbar">
+    <div class="row" style="margin:0">
       <button class="small navbtn" id="prevM" type="button" aria-label="Previous month">‹</button>
       <input type="month" id="month" aria-label="Month">
       <button class="small navbtn" id="nextM" type="button" aria-label="Next month">›</button>
     </div>
-    <div class="row">
-      <input type="number" id="budgetInput" inputmode="decimal" min="0" max="999999999" step="0.01" placeholder="Monthly budget (₹)" aria-label="Monthly budget">
-      <button class="primary small" id="budgetSave" type="button">Set</button>
-    </div>
-    <div class="totals">
-      <div><span>Budget</span><strong id="tBudget" style="color:var(--accent)">–</strong></div>
-      <div><span>Spent</span><strong id="tSpent" style="color:var(--warn)">₹0</strong></div>
-      <div><span>Remaining</span><strong id="tRemain">–</strong></div>
-    </div>
-    <div class="track"><div class="fill" id="fill"></div></div>
-    <div class="meta" id="miscLine" style="margin-top:8px"></div>
-    <div class="meta" id="todayLine"></div>
   </div>
 
   <section id="pageEntry">
@@ -181,8 +171,24 @@
       <ul id="trList"></ul>
     </div>
 
+    <div class="card hero group budget">
+      <div class="gh"><span class="gnum">3</span> 💰 Monthly budget</div>
+      <div class="row">
+        <input type="number" id="budgetInput" inputmode="decimal" min="0" max="999999999" step="0.01" placeholder="Monthly budget (₹)" aria-label="Monthly budget">
+        <button class="primary small" id="budgetSave" type="button">Set</button>
+      </div>
+      <div class="totals">
+        <div><span>Budget</span><strong id="tBudget" style="color:var(--accent)">–</strong></div>
+        <div><span>Spent</span><strong id="tSpent" style="color:var(--warn)">₹0</strong></div>
+        <div><span>Remaining</span><strong id="tRemain">–</strong></div>
+      </div>
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <div class="meta" id="miscLine" style="margin-top:8px"></div>
+      <div class="meta" id="todayLine"></div>
+    </div>
+
     <div class="card group">
-      <div class="gh"><span class="gnum">3</span> 🧾 Expense booking</div>
+      <div class="gh"><span class="gnum">4</span> 🧾 Expense booking</div>
       <form id="form">
         <input class="full" id="note" placeholder="What was it for? (e.g. Lunch)" required maxlength="100">
         <input id="amount" type="number" inputmode="decimal" min="0.01" max="999999999" step="0.01" placeholder="Amount (₹)" required>
