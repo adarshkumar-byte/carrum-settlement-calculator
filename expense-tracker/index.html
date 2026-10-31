@@ -13,9 +13,9 @@
 <meta name="apple-mobile-web-app-title" content="Expenses">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>
-  :root { --bg:#f5f6fa; --card:#fff; --text:#1d2433; --muted:#6b7385; --accent:#3b5bdb; --danger:#d6336c; --border:#e3e6ee; --ok:#2f9e44; }
+  :root { --bg:#f5f6fa; --card:#fff; --text:#1d2433; --muted:#6b7385; --accent:#3b5bdb; --danger:#d6336c; --border:#e3e6ee; --ok:#2f9e44; --warn:#f08c00; --accent2:#7048e8; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#12151c; --card:#1b1f2a; --text:#e8eaf0; --muted:#8d95a8; --accent:#748ffc; --danger:#f06595; --border:#2a3040; --ok:#69db7c; }
+    :root { --bg:#12151c; --card:#1b1f2a; --text:#e8eaf0; --muted:#8d95a8; --accent:#748ffc; --danger:#f06595; --border:#2a3040; --ok:#69db7c; --warn:#ffa94d; --accent2:#9775fa; }
   }
   * { box-sizing:border-box; }
   body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text);
@@ -32,9 +32,15 @@
   form { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
   form .full { grid-column:1/-1; }
   input, select, button { font:inherit; font-size:16px; /* 16px stops iOS zoom-on-focus */ padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); width:100%; min-width:0; }
-  button.primary { background:var(--accent); color:#fff; border:none; cursor:pointer; font-weight:600; }
+  button.primary { color:#fff; border:none; cursor:pointer; font-weight:600; }
   .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
   .row input, .row select { flex:1; }
+  .hero .row { flex-wrap:wrap; }
+  #month { flex:1 1 100%; }
+  #budgetInput { flex:1 1 0; min-width:0; }
+  .totals { gap:6px; }
+  .totals div { min-width:0; }
+  .totals div strong { font-size:.95rem; overflow-wrap:anywhere; }
   ul { list-style:none; margin:0; padding:0; }
   li { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); }
   li:last-child { border-bottom:none; }
@@ -43,9 +49,22 @@
   .del { background:none; border:none; color:var(--danger); cursor:pointer; width:auto; padding:4px 10px; font-size:1.1rem; }
   .bar { height:8px; background:var(--accent); border-radius:4px; margin-top:4px; }
   .track { height:10px; background:var(--border); border-radius:5px; margin-top:12px; overflow:hidden; }
-  .fill { height:100%; width:0; background:var(--ok); transition:width .3s; }
+  .fill { height:100%; width:0; background:var(--ok); transition:width .3s, background .3s; }
+  .fill.warn { background:var(--warn); }
   .fill.over { background:var(--danger); }
   .neg { color:var(--danger); }
+  .pos { color:var(--ok); }
+  .warnc { color:var(--warn); }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:baseline; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:.75rem; color:var(--muted); margin-top:6px; }
+  .card.hero { border:none; background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, var(--card)), color-mix(in srgb, var(--accent2) 18%, var(--card))); }
+  .totals div { background:color-mix(in srgb, var(--card) 70%, transparent); border-radius:10px; padding:8px 4px; }
+  button.primary { background:linear-gradient(135deg, var(--accent), var(--accent2)); }
+  .tile { border-left:4px solid var(--accent); }
+  .tile:nth-child(2) { border-left-color:var(--warn); }
+  .tile:nth-child(3) { border-left-color:var(--danger); }
+  .tile:nth-child(4) { border-left-color:var(--accent2); }
+  .tile:nth-child(5) { border-left-color:var(--ok); }
   .tiles { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
   .tile { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:10px; }
   .tile span { display:block; font-size:.72rem; color:var(--muted); }
@@ -85,15 +104,15 @@
     <p class="note" style="margin:0">Sync isn't configured yet, so this phone keeps its own separate list. See SETUP.md to turn on sharing.</p>
   </div>
 
-  <div class="card">
+  <div class="card hero">
     <div class="row">
       <input type="month" id="month" aria-label="Month">
       <input type="number" id="budgetInput" inputmode="decimal" min="0" step="0.01" placeholder="Monthly budget (₹)" aria-label="Monthly budget">
       <button class="primary small" id="budgetSave" type="button">Set</button>
     </div>
     <div class="totals">
-      <div><span>Budget</span><strong id="tBudget">–</strong></div>
-      <div><span>Spent</span><strong id="tSpent">₹0</strong></div>
+      <div><span>Budget</span><strong id="tBudget" style="color:var(--accent)">–</strong></div>
+      <div><span>Spent</span><strong id="tSpent" style="color:var(--warn)">₹0</strong></div>
       <div><span>Remaining</span><strong id="tRemain">–</strong></div>
     </div>
     <div class="track"><div class="fill" id="fill"></div></div>
@@ -253,6 +272,9 @@ $('date').value = today();
 $('month').value = today().slice(0, 7);
 [...$('category').options].forEach(o => $('filterCat').add(new Option(o.value, o.value)));
 
+const CAT_COLOR = { Food:'#f59f00', Transport:'#339af0', Bills:'#845ef7', Shopping:'#f06595', Health:'#20c997', Entertainment:'#fab005', Miscellaneous:'#fa5252', Other:'#fa5252' };
+const catColor = c => CAT_COLOR[c] || '#868e96';
+const PERSON_COLORS = ['#3b5bdb', '#e64980', '#12b886', '#f08c00'];
 const MISC = 'Miscellaneous';
 const isMisc = c => c === MISC || c === 'Other'; // 'Other' = older entries
 function monthItems(m) { return items.filter(x => (x.date || '').startsWith(m)); }
@@ -269,9 +291,10 @@ function render() {
   $('tSpent').textContent = fmt(spent);
   const rem = hasB ? budget - spent : null;
   $('tRemain').textContent = hasB ? fmt(rem) : '–';
-  $('tRemain').className = hasB && rem < 0 ? 'neg' : '';
+  const pct = hasB && budget > 0 ? spent / budget : 0;
+  $('tRemain').className = !hasB ? '' : rem < 0 ? 'neg' : pct >= 0.8 ? 'warnc' : 'pos';
   $('fill').style.width = hasB && budget > 0 ? Math.min(100, spent / budget * 100) + '%' : '0';
-  $('fill').className = 'fill' + (hasB && spent > budget ? ' over' : '');
+  $('fill').className = 'fill' + (hasB && spent > budget ? ' over' : pct >= 0.8 ? ' warn' : '');
   const misc = sumOf(mi.filter(x => isMisc(x.category)));
   $('miscLine').textContent = `Miscellaneous this month: ${fmt(misc)}` + (spent ? ` (${Math.round(misc / spent * 100)}% of spending)` : '');
   $('todayLine').textContent = m === today().slice(0, 7) ? `Spent today: ${fmt(sumOf(items.filter(x => x.date === today())))}` : '';
@@ -279,7 +302,7 @@ function render() {
   const view = mi.filter(x => !cat || x.category === cat).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   $('list').innerHTML = view.length ? view.map(x => `
     <li>
-      <div><div>${esc(x.note)}</div><div class="meta">${esc(x.date)} · ${esc(x.category)}${x.by ? ' · ' + esc(x.by) : ''}</div></div>
+      <div><div>${esc(x.note)}</div><div class="meta">${esc(x.date)} · <span class="dot" style="background:${catColor(x.category)};margin-right:3px"></span>${esc(x.category)}${x.by ? ' · ' + esc(x.by) : ''}</div></div>
       <div><span class="amt">${fmt(Number(x.amount) || 0)}</span><button class="del" data-id="${esc(x.id)}" aria-label="Delete">✕</button></div>
     </li>`).join('') : '<div class="empty">No expenses for this month.</div>';
 
@@ -287,7 +310,7 @@ function render() {
   mi.forEach(x => by[x.category] = (by[x.category] || 0) + (Number(x.amount) || 0));
   const max = Math.max(0, ...Object.values(by));
   $('breakdown').innerHTML = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
-    `<div style="margin-top:10px"><div class="row" style="justify-content:space-between;margin:0"><span>${esc(k)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${v / max * 100}%"></div></div>`
+    `<div style="margin-top:10px"><div class="row" style="justify-content:space-between;margin:0"><span><span class="dot" style="background:${catColor(k)}"></span>${esc(k)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${v / max * 100}%;background:${catColor(k)}"></div></div>`
   ).join('') || '<div class="empty">Nothing to show.</div>';
   renderAnalysis(m, mi, spent, budget);
 }
@@ -302,9 +325,10 @@ function renderAnalysis(m, mi, spent, budget) {
   const left = total - elapsed;
   const hasB = typeof budget === 'number';
 
-  // per-day totals
+  // per-day totals (and per category for the stacked chart)
   const perDay = Array(total).fill(0);
-  mi.forEach(x => { const d = Number((x.date || '').slice(8, 10)); if (d >= 1 && d <= total) perDay[d - 1] += Number(x.amount) || 0; });
+  const perDayCat = Array.from({ length: total }, () => ({}));
+  mi.forEach(x => { const d = Number((x.date || '').slice(8, 10)); if (d >= 1 && d <= total) { const a = Number(x.amount) || 0; perDay[d - 1] += a; perDayCat[d - 1][x.category] = (perDayCat[d - 1][x.category] || 0) + a; } });
   const maxDay = Math.max(0, ...perDay);
   const avg = elapsed ? spent / elapsed : 0;
   const biggest = mi.reduce((b, x) => (!b || x.amount > b.amount ? x : b), null);
@@ -338,22 +362,27 @@ function renderAnalysis(m, mi, spent, budget) {
   } else adv = 'Set a monthly budget above to get daily-limit advice.';
   $('advice').innerHTML = adv;
 
-  // daily bars (inline SVG)
+  // daily stacked bars (inline SVG), coloured by category
   const W = 320, H = 90, bw = W / total;
+  const catsPresent = [...new Set(mi.map(x => x.category))];
   $('daily').innerHTML = spent ? `<svg viewBox="0 0 ${W} ${H + 14}" width="100%" role="img" aria-label="Daily spending">` +
     perDay.map((v, i) => {
-      const h = maxDay ? v / maxDay * H : 0;
-      return `<rect x="${i * bw + 1}" y="${H - h}" width="${Math.max(1, bw - 2)}" height="${h}" rx="2" fill="var(--accent)"><title>Day ${i + 1}: ${fmt(v)}</title></rect>`;
+      let y = H;
+      return catsPresent.map(c => {
+        const val = perDayCat[i][c] || 0; if (!val) return '';
+        const h = maxDay ? val / maxDay * H : 0; y -= h;
+        return `<rect x="${i * bw + 1}" y="${y}" width="${Math.max(1, bw - 2)}" height="${h}" fill="${catColor(c)}"><title>Day ${i + 1} · ${esc(c)}: ${fmt(val)}</title></rect>`;
+      }).join('');
     }).join('') +
     [1, Math.ceil(total / 2), total].map(d => `<text x="${(d - 0.5) * bw}" y="${H + 12}" font-size="9" text-anchor="middle" fill="var(--muted)">${d}</text>`).join('') +
-    `</svg>` : '<div class="empty">No data.</div>';
+    `</svg><div class="legend">${catsPresent.map(c => `<span><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}</span>`).join('')}</div>` : '<div class="empty">No data.</div>';
 
   // per person
   const byP = {};
   mi.forEach(x => { const k = x.by || 'Unknown'; byP[k] = (byP[k] || 0) + x.amount; });
   const maxP = Math.max(0, ...Object.values(byP));
-  $('byPerson').innerHTML = Object.entries(byP).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
-    `<div style="margin-top:8px"><div class="row" style="justify-content:space-between;margin:0"><span>${esc(k)}</span><span>${fmt(v)} · ${Math.round(v / spent * 100)}%</span></div><div class="bar" style="width:${v / maxP * 100}%"></div></div>`
+  $('byPerson').innerHTML = Object.entries(byP).sort((a, b) => b[1] - a[1]).map(([k, v], i) =>
+    `<div style="margin-top:8px"><div class="row" style="justify-content:space-between;margin:0"><span><span class="dot" style="background:${PERSON_COLORS[i % 4]}"></span>${esc(k)}</span><span>${fmt(v)} · ${Math.round(v / spent * 100)}%</span></div><div class="bar" style="width:${v / maxP * 100}%;background:${PERSON_COLORS[i % 4]}"></div></div>`
   ).join('') || '<div class="empty">No data.</div>';
 
   // last 6 months
@@ -366,7 +395,7 @@ function renderAnalysis(m, mi, spent, budget) {
     rows.push({ key, spent: sumOf(its), misc: sumOf(its.filter(x => isMisc(x.category))), budget: budgets[key], n: its.length });
   }
   $('history').innerHTML = `<table><tr><th>Month</th><th>Budget</th><th>Spent</th><th>Misc</th><th>Left</th></tr>` +
-    rows.map(r => `<tr><td>${monthLabel(r.key)}</td><td>${typeof r.budget === 'number' ? fmt(r.budget) : '–'}</td><td>${r.n ? fmt(r.spent) : '–'}</td><td>${r.n ? fmt(r.misc) : '–'}</td><td class="${typeof r.budget === 'number' && r.budget - r.spent < 0 ? 'neg' : ''}">${typeof r.budget === 'number' ? fmt(r.budget - r.spent) : '–'}</td></tr>`).join('') + '</table>';
+    rows.map(r => `<tr><td>${monthLabel(r.key)}</td><td>${typeof r.budget === 'number' ? fmt(r.budget) : '–'}</td><td>${r.n ? fmt(r.spent) : '–'}</td><td>${r.n ? fmt(r.misc) : '–'}</td><td class="${typeof r.budget !== 'number' ? '' : r.budget - r.spent < 0 ? 'neg' : 'pos'}">${typeof r.budget === 'number' ? fmt(r.budget - r.spent) : '–'}</td></tr>`).join('') + '</table>';
 }
 
 $('setupForm').addEventListener('submit', e => {
