@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily Expense Tracker</title>
+<style>
+  :root { --bg:#f5f6fa; --card:#fff; --text:#1d2433; --muted:#6b7385; --accent:#3b5bdb; --danger:#d6336c; --border:#e3e6ee; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151c; --card:#1b1f2a; --text:#e8eaf0; --muted:#8d95a8; --accent:#748ffc; --danger:#f06595; --border:#2a3040; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:640px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.3rem; margin:8px 0 16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .totals { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center; }
+  .totals div span { display:block; font-size:.75rem; color:var(--muted); }
+  .totals div strong { font-size:1.1rem; }
+  form { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  form .full { grid-column:1/-1; }
+  input, select, button { font:inherit; padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); width:100%; }
+  button.primary { background:var(--accent); color:#fff; border:none; cursor:pointer; font-weight:600; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .row input, .row select { flex:1; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); }
+  li:last-child { border-bottom:none; }
+  .meta { font-size:.8rem; color:var(--muted); }
+  .amt { font-weight:600; white-space:nowrap; }
+  .del { background:none; border:none; color:var(--danger); cursor:pointer; width:auto; padding:4px 8px; font-size:1.1rem; }
+  .bar { height:8px; background:var(--accent); border-radius:4px; margin-top:4px; }
+  .empty { color:var(--muted); text-align:center; padding:12px; }
+  .small { width:auto; padding:8px 12px; cursor:pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>💸 Daily Expense Tracker</h1>
+
+  <div class="card totals">
+    <div><span>Today</span><strong id="tToday">0</strong></div>
+    <div><span>This month</span><strong id="tMonth">0</strong></div>
+    <div><span>Selected view</span><strong id="tView">0</strong></div>
+  </div>
+
+  <div class="card">
+    <form id="form">
+      <input class="full" id="note" placeholder="What was it for? (e.g. Lunch)" required>
+      <input id="amount" type="number" min="0" step="0.01" placeholder="Amount" required>
+      <select id="category">
+        <option>Food</option><option>Transport</option><option>Bills</option>
+        <option>Shopping</option><option>Health</option><option>Entertainment</option><option>Other</option>
+      </select>
+      <input class="full" id="date" type="date" required>
+      <button class="primary full" type="submit">Add expense</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <input type="month" id="month">
+      <select id="filterCat"><option value="">All categories</option></select>
+    </div>
+    <ul id="list"></ul>
+  </div>
+
+  <div class="card">
+    <strong>By category</strong>
+    <div id="breakdown"></div>
+  </div>
+
+  <div class="row">
+    <button class="small" id="export">Export CSV</button>
+    <button class="small" id="clear">Clear all</button>
+  </div>
+</main>
+
+<script>
+const KEY = 'expenses.v1';
+const $ = id => document.getElementById(id);
+let items = [];
+try { items = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { items = []; }
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(items)); } catch (e) {} };
+const fmt = n => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const today = () => new Date().toISOString().slice(0, 10);
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+$('date').value = today();
+$('month').value = today().slice(0, 7);
+[...$('category').options].forEach(o => $('filterCat').add(new Option(o.value, o.value)));
+
+function render() {
+  const m = $('month').value, cat = $('filterCat').value;
+  const sum = a => a.reduce((s, x) => s + x.amount, 0);
+  $('tToday').textContent = fmt(sum(items.filter(x => x.date === today())));
+  $('tMonth').textContent = fmt(sum(items.filter(x => x.date.startsWith(today().slice(0, 7)))));
+
+  const view = items.filter(x => (!m || x.date.startsWith(m)) && (!cat || x.category === cat))
+                    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  $('tView').textContent = fmt(sum(view));
+
+  $('list').innerHTML = view.length ? view.map(x => `
+    <li>
+      <div><div>${esc(x.note)}</div><div class="meta">${x.date} · ${esc(x.category)}</div></div>
+      <div><span class="amt">${fmt(x.amount)}</span><button class="del" data-id="${x.id}" title="Delete">✕</button></div>
+    </li>`).join('') : '<div class="empty">No expenses yet.</div>';
+
+  const by = {};
+  view.forEach(x => by[x.category] = (by[x.category] || 0) + x.amount);
+  const max = Math.max(0, ...Object.values(by));
+  $('breakdown').innerHTML = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+    `<div style="margin-top:10px"><div class="row" style="justify-content:space-between;margin:0"><span>${esc(k)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${v / max * 100}%"></div></div>`
+  ).join('') || '<div class="empty">Nothing to show.</div>';
+}
+
+$('form').addEventListener('submit', e => {
+  e.preventDefault();
+  items.push({ id: Date.now(), note: $('note').value.trim(), amount: parseFloat($('amount').value), category: $('category').value, date: $('date').value });
+  save();
+  $('note').value = ''; $('amount').value = '';
+  $('note').focus();
+  render();
+});
+$('list').addEventListener('click', e => {
+  const id = e.target.dataset.id;
+  if (!id) return;
+  items = items.filter(x => x.id !== +id);
+  save(); render();
+});
+$('month').addEventListener('change', render);
+$('filterCat').addEventListener('change', render);
+$('clear').addEventListener('click', () => {
+  if (confirm('Delete ALL expenses? This cannot be undone.')) { items = []; save(); render(); }
+});
+$('export').addEventListener('click', () => {
+  const q = s => '"' + String(s).replace(/"/g, '""') + '"';
+  const csv = 'Date,Note,Category,Amount\n' + items.map(x => [x.date, q(x.note), x.category, x.amount].join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'expenses.csv';
+  a.click();
+});
+render();
+</script>
+</body>
+</html>
