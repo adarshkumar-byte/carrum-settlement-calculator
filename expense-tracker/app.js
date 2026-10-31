@@ -152,7 +152,8 @@ function refreshDates() {
   const t = today();
   if (t === defaultDate) return;
   if ($('date').value === defaultDate) $('date').value = t;
-  if ($('moveDate').value === defaultDate) $('moveDate').value = t;
+  if ($('incDate').value === defaultDate) $('incDate').value = t;
+  if ($('trDate').value === defaultDate) $('trDate').value = t;
   defaultDate = t; render();
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshDates(); });
@@ -250,11 +251,13 @@ function renderWallets(m) {
     <div class="det">${parts(st[k]) || 'No activity this month'} <span style="opacity:.7">(this month)</span></div></div>`).join('')
     : '<div class="empty">Add your income, then transfer money to Kajal. Her balance will show here on both phones.</div>';
 
-  const list = moves.filter(x => inMonth(x.date)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  $('moveList').innerHTML = list.length ? list.map(x => `
-    <li><div><div>${moveKind(x) === 'income' ? '⬇️ Income' : '➡️ Transfer to ' + esc(canonName(moveTo(x)))}${x.note ? ' · ' + esc(x.note) : ''}</div><div class="meta">${esc(x.date)}${x.by ? ' · ' + esc(x.by) : ''}</div></div>
-    <div><span class="amt ${moveKind(x) === 'income' ? 'pos' : ''}">${fmt(Number(x.amount) || 0)}</span><button class="del" data-id="${esc(x.id)}" aria-label="Delete">✕</button></div></li>`).join('')
-    : '<div class="empty">Nothing this month.</div>';
+  const row = x => `
+    <li><div><div>${moveKind(x) === 'income' ? '⬇️ ' + (x.note ? esc(x.note) : 'Income') : '➡️ To ' + esc(canonName(moveTo(x))) + (x.note ? ' · ' + esc(x.note) : '')}</div><div class="meta">${esc(x.date)}${x.by ? ' · ' + esc(x.by) : ''}</div></div>
+    <div><span class="amt ${moveKind(x) === 'income' ? 'pos' : ''}">${fmt(Number(x.amount) || 0)}</span><button class="del" data-id="${esc(x.id)}" aria-label="Delete">✕</button></div></li>`;
+  const cur = moves.filter(x => inMonth(x.date)).sort((p, q) => (q.date || '').localeCompare(p.date || ''));
+  const inc = cur.filter(x => moveKind(x) === 'income'), tr = cur.filter(x => moveKind(x) === 'transfer');
+  $('incList').innerHTML = inc.length ? inc.map(row).join('') + `<li><strong>Total income</strong><strong class="pos">${fmt(sumOf(inc))}</strong></li>` : '<div class="empty">No income added this month.</div>';
+  $('trList').innerHTML = tr.length ? tr.map(row).join('') + `<li><strong>Total transferred</strong><strong>${fmt(sumOf(tr))}</strong></li>` : '<div class="empty">No transfers this month.</div>';
 }
 
 function renderAnalysis(m, mi, spent, budget) {
@@ -335,28 +338,60 @@ function renderAnalysis(m, mi, spent, budget) {
   $('history').innerHTML = `<table><tr><th>Month</th><th>Budget</th><th>Spent</th><th>Misc</th><th>Left</th></tr>` +
     rows.map(r => `<tr class="go${r.key === m ? ' sel' : ''}" data-month="${r.key}"><td>${monthLabel(r.key)}</td><td>${typeof r.budget === 'number' ? fmt0(r.budget) : '–'}</td><td>${r.n ? fmt0(r.spent) : '–'}</td><td>${r.n ? fmt0(r.misc) : '–'}</td><td class="${typeof r.budget !== 'number' ? '' : r.budget - r.spent < 0 ? 'neg' : 'pos'}">${typeof r.budget === 'number' ? fmt0(r.budget - r.spent) : '–'}</td></tr>`).join('') + '</table>';
   renderCompare();
+  renderMoM(m);
+  renderTrend(m);
 }
 
-function renderCompare() {
-  const A = $('cmpA').value, B = $('cmpB').value;
-  if (!validMonth(A) || !validMonth(B)) { $('cmpOut').innerHTML = '<div class="empty">Pick two months.</div>'; return; }
+const sumKind = (m, kind) => sumOf(moves.filter(x => (x.date || '').startsWith(m) && moveKind(x) === kind));
+function compareHtml(A, B) {
   const ia = monthItems(A), ib = monthItems(B);
   const sumBy = its => its.reduce((o, x) => (o[x.category] = (o[x.category] || 0) + (Number(x.amount) || 0), o), dict());
   const ca = sumBy(ia), cb = sumBy(ib);
   const cats = [...new Set([...Object.keys(ca), ...Object.keys(cb)])].sort((x, y) => ((cb[y] || 0) + (ca[y] || 0)) - ((cb[x] || 0) + (ca[x] || 0)));
-  const delta = (a, b, neutral) => {
-    const d = b - a;
+  const delta = (p, q, neutral) => {
+    const d = q - p;
     if (!d) return '<td>–</td>';
-    const pct = a ? `<br><small>${Math.round(Math.abs(d) / a * 100)}%</small>` : '';
+    const pct = p ? `<br><small>${Math.round(Math.abs(d) / p * 100)}%</small>` : '';
     return `<td class="${neutral ? '' : d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${fmt0(Math.abs(d))}${pct}</td>`;
   };
-  const row = (label, a, b, bold, neutral) => `<tr${bold ? ' style="font-weight:700"' : ''}><td>${label}</td><td>${fmt0(a)}</td><td>${fmt0(b)}</td>${delta(a, b, neutral)}</tr>`;
-  const ta = sumOf(ia), tb = sumOf(ib);
-  $('cmpOut').innerHTML = `<table style="margin-top:8px"><tr><th>Category</th><th>${monthLabel(A)}</th><th>${monthLabel(B)}</th><th>Change</th></tr>` +
-    cats.map(c => row(`<span class="dot" style="background:${catColor(c)}"></span>${esc(c)}`, ca[c] || 0, cb[c] || 0)).join('') +
-    row('Total', ta, tb, true) +
-    (typeof budgets[A] === 'number' || typeof budgets[B] === 'number' ? row('Budget', budgets[A] || 0, budgets[B] || 0, false, true) : '') +
-    `</table><div class="meta" style="margin-top:6px">▲ red = spent more in ${monthLabel(B)}, ▼ green = spent less.</div>`;
+  const row = (label, p, q, bold, neutral) => `<tr${bold ? ' style="font-weight:700"' : ''}><td>${label}</td><td>${fmt0(p)}</td><td>${fmt0(q)}</td>${delta(p, q, neutral)}</tr>`;
+  const extra = [];
+  if (typeof budgets[A] === 'number' || typeof budgets[B] === 'number') extra.push(row('Budget', budgets[A] || 0, budgets[B] || 0, false, true));
+  const incA = sumKind(A, 'income'), incB = sumKind(B, 'income'), trA = sumKind(A, 'transfer'), trB = sumKind(B, 'transfer');
+  if (incA || incB) extra.push(row('Income received', incA, incB, false, true));
+  if (trA || trB) extra.push(row('Transferred to family', trA, trB, false, true));
+  return `<table style="margin-top:8px"><tr><th>Category</th><th>${monthLabel(A)}</th><th>${monthLabel(B)}</th><th>Change</th></tr>` +
+    (cats.length ? cats.map(c => row(`<span class="dot" style="background:${catColor(c)}"></span>${esc(c)}`, ca[c] || 0, cb[c] || 0)).join('') : '<tr><td colspan="4" class="empty">No expenses in either month.</td></tr>') +
+    row('Total spent', sumOf(ia), sumOf(ib), true) + extra.join('') +
+    `</table><div class="meta" style="margin-top:6px">▲ red = spent more in ${monthLabel(B)}, ▼ green = spent less. Budget, income and transfers are shown without colour.</div>`;
+}
+function renderCompare() {
+  const A = $('cmpA').value, B = $('cmpB').value;
+  $('cmpOut').innerHTML = validMonth(A) && validMonth(B) ? compareHtml(A, B) : '<div class="empty">Pick two months.</div>';
+}
+function renderMoM(m) {
+  const A = shiftMonth(m, -1), ta = sumOf(monthItems(A)), tb = sumOf(monthItems(m)), d = tb - ta;
+  $('momSummary').innerHTML = !ta && !tb ? `No expenses in ${monthLabel(A)} or ${monthLabel(m)} yet.`
+    : !ta ? `${monthLabel(m)}: ${fmt0(tb)} spent. No expenses recorded in ${monthLabel(A)} to compare with.`
+    : `${monthLabel(m)} spending is <b class="${d > 0 ? 'up' : 'down'}">${d > 0 ? '▲ up' : d < 0 ? '▼ down' : 'unchanged'} ${d ? fmt0(Math.abs(d)) + ' (' + Math.round(Math.abs(d) / ta * 100) + '%)' : ''}</b> compared with ${monthLabel(A)} (${fmt0(ta)} → ${fmt0(tb)}).`;
+  $('momOut').innerHTML = compareHtml(A, m);
+}
+const compact = n => n >= 100000 ? (n / 100000).toFixed(1).replace(/\.0$/, '') + 'L' : n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(Math.round(n));
+function renderTrend(m) {
+  const months = Array.from({ length: 6 }, (_, i) => shiftMonth(m, i - 5));
+  const data = months.map(k => { const its = monthItems(k), by = dict(); its.forEach(x => by[x.category] = (by[x.category] || 0) + x.amount); return { k, by, total: sumOf(its) }; });
+  const max = Math.max(0, ...data.map(d => d.total));
+  if (!max) { $('trend').innerHTML = '<div class="empty">No data yet.</div>'; return; }
+  const cats = [...new Set(data.flatMap(d => Object.keys(d.by)))];
+  const W = 320, H = 100, top = 14, bw = W / 6;
+  $('trend').innerHTML = `<svg viewBox="0 0 ${W} ${H + top + 16}" width="100%" role="img" aria-label="Spending in the last 6 months">` +
+    data.map((d, i) => {
+      let y = top + H; const x = i * bw + 8, w = bw - 16;
+      const bars = cats.map(c => { const v = d.by[c] || 0; if (!v) return ''; const h = v / max * H; y -= h; return `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${catColor(c)}"><title>${monthLabel(d.k)} · ${esc(c)}: ${fmt(v)}</title></rect>`; }).join('');
+      return `<g data-month="${d.k}">${bars}<rect x="${i * bw}" y="0" width="${bw}" height="${H + top + 16}" fill="transparent"></rect>` +
+        `<text x="${i * bw + bw / 2}" y="${y - 3}" font-size="9" text-anchor="middle" fill="var(--text)">${d.total ? compact(d.total) : ''}</text>` +
+        `<text x="${i * bw + bw / 2}" y="${top + H + 12}" font-size="9" text-anchor="middle" fill="var(--muted)" ${d.k === m ? 'font-weight="700"' : ''}>${monthLabel(d.k)}</text></g>`;
+    }).join('') + `</svg><div class="legend">${cats.map(c => `<span><span class="dot" style="background:${catColor(c)}"></span>${esc(c)}</span>`).join('')}</div>`;
 }
 
 $('setupForm').addEventListener('submit', e => {
@@ -386,25 +421,39 @@ $('form').addEventListener('submit', async e => {
   $('note').value = ''; $('amount').value = ''; $('note').focus();
   try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); if (!$('note').value) $('note').value = note; if (!$('amount').value) $('amount').value = amt; alert('Could not save this expense. Please try again.'); }
 });
-$('moveType').addEventListener('change', () => { $('moveTo').hidden = $('moveType').value !== 'transfer'; $('moveTo').required = !$('moveTo').hidden; });
-$('moveTo').value = LS.get('lastTo') || 'Kajal';
-$('moveDate').value = today();
-$('moveForm').addEventListener('submit', async e => {
-  e.preventDefault();
+$('trTo').value = LS.get('lastTo') || 'Kajal';
+$('incDate').value = today();
+$('trDate').value = today();
+async function addMove(type, amtEl, dateEl, noteEl, to) {
   if (!userName) { $('setup').hidden = false; $('userName').focus(); return; }
-  if (!store) { alert('Still connecting – please wait a moment and tap Add again.'); return; }
-  const type = $('moveType').value, amt = parseFloat($('moveAmt').value), to = $('moveTo').value.trim();
-  if (!(amt > 0) || !$('moveDate').value || (type === 'transfer' && !to)) return;
-  const x = { id: uid(), note: $('moveNote').value.trim(), amount: amt, category: type === 'income' ? '@income' : '@transfer:' + canonName(to), date: $('moveDate').value, by: userName };
+  if (!store) { alert('Still connecting – please wait a moment and tap again.'); return; }
+  const amt = parseFloat(amtEl.value);
+  if (!(amt > 0) || !dateEl.value || (type === 'transfer' && !to)) return;
   if (type === 'transfer') { if (norm(to) === norm(userName)) { alert('Transfer to someone else (not yourself).'); return; } LS.set('lastTo', to); }
-  $('moveAmt').value = ''; $('moveNote').value = '';
-  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); if (!$('moveAmt').value) $('moveAmt').value = amt; alert('Could not save. Please try again.'); }
-});
-$('moveList').addEventListener('click', async e => {
+  const x = { id: uid(), note: noteEl.value.trim(), amount: amt, category: type === 'income' ? '@income' : '@transfer:' + canonName(to), date: dateEl.value, by: userName };
+  amtEl.value = ''; noteEl.value = '';
+  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); if (!amtEl.value) amtEl.value = amt; alert('Could not save. Please try again.'); }
+}
+$('incForm').addEventListener('submit', e => { e.preventDefault(); addMove('income', $('incAmt'), $('incDate'), $('incNote')); });
+$('trForm').addEventListener('submit', e => { e.preventDefault(); addMove('transfer', $('trAmt'), $('trDate'), $('trNote'), $('trTo').value.trim()); });
+const delMove = async e => {
   const id = e.target.dataset.id;
   if (!id || !confirm('Delete this entry?')) return;
   try { await store.remove(id); } catch (err) { console.error(err); setStatus('error'); }
-});
+};
+$('incList').addEventListener('click', delMove);
+$('trList').addEventListener('click', delMove);
+
+// ---- two pages: Entry / Analysis ----
+function showTab(name) {
+  const an = name === 'analysis';
+  $('pageEntry').hidden = an; $('pageAnalysis').hidden = !an;
+  $('tabEntry').classList.toggle('on', !an); $('tabAnalysis').classList.toggle('on', an);
+  LS.set('tab', an ? 'analysis' : 'entry');
+}
+$('tabEntry').addEventListener('click', () => { showTab('entry'); scrollTo({ top: 0 }); });
+$('tabAnalysis').addEventListener('click', () => { showTab('analysis'); scrollTo({ top: 0 }); });
+showTab(LS.get('tab') === 'analysis' ? 'analysis' : 'entry');
 $('list').addEventListener('click', async e => {
   const id = e.target.dataset.id;
   if (!id || !confirm('Delete this expense?')) return;
@@ -415,6 +464,11 @@ $('prevM').addEventListener('click', () => { $('month').value = shiftMonth($('mo
 $('nextM').addEventListener('click', () => { $('month').value = shiftMonth($('month').value || curMonth(), 1); $('budgetInput').value = ''; render(); });
 $('cmpA').addEventListener('change', renderCompare);
 $('cmpB').addEventListener('change', renderCompare);
+$('trend').addEventListener('click', e => {
+  const g = e.target.closest('[data-month]');
+  if (!g) return;
+  $('month').value = g.dataset.month; $('budgetInput').value = ''; render();
+});
 $('history').addEventListener('click', e => {
   const tr = e.target.closest('tr[data-month]');
   if (!tr) return;

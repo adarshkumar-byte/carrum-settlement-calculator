@@ -89,6 +89,16 @@
   .wallet .top { display:flex; justify-content:space-between; align-items:baseline; }
   .wallet .bal { font-size:1.35rem; font-weight:700; }
   .wallet .det { font-size:.78rem; color:var(--muted); margin-top:2px; }
+  main { padding-bottom:84px; }
+  .tabs { position:fixed; left:0; right:0; bottom:0; display:flex; gap:8px; padding:8px 16px calc(8px + env(safe-area-inset-bottom)); background:var(--card); border-top:1px solid var(--border); z-index:5; }
+  .tabs button { flex:1; padding:12px 8px; font-weight:600; cursor:pointer; background:var(--bg); }
+  .tabs button.on { background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; border-color:transparent; }
+  .gh { font-weight:700; font-size:1.02rem; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .gnum { display:inline-flex; width:24px; height:24px; border-radius:50%; align-items:center; justify-content:center; background:var(--accent); color:#fff; font-size:.8rem; }
+  #pageEntry .card.group:nth-child(1) { border-top:4px solid var(--ok); }
+  #pageEntry .card.group:nth-child(2) { border-top:4px solid var(--accent); }
+  #pageEntry .card.group:nth-child(3) { border-top:4px solid var(--warn); }
+  svg [data-month] { cursor:pointer; }
   .empty { color:var(--muted); text-align:center; padding:12px; }
   .small { width:auto; padding:8px 12px; cursor:pointer; }
   .note { font-size:.85rem; color:var(--muted); margin:0 0 10px; }
@@ -144,78 +154,105 @@
     <div class="meta" id="todayLine"></div>
   </div>
 
-  <div class="card" id="walletCard">
-    <strong>💰 Wallets (income &amp; transfers)</strong>
-    <div id="wallets"></div>
-    <div class="sub">Add income or a transfer</div>
-    <form id="moveForm">
-      <select id="moveType" class="full" aria-label="Type">
-        <option value="income">Income received (e.g. salary)</option>
-        <option value="transfer">Transfer to someone</option>
-      </select>
-      <input class="full" id="moveTo" placeholder="Transfer to (e.g. Kajal)" maxlength="30" hidden>
-      <input id="moveAmt" type="number" inputmode="decimal" min="0.01" max="999999999" step="0.01" placeholder="Amount (₹)" required>
-      <input id="moveDate" type="date" required>
-      <input class="full" id="moveNote" placeholder="Note (optional, e.g. October salary)" maxlength="100">
-      <button class="primary full" type="submit">Add</button>
-    </form>
-    <div class="sub">This month's income &amp; transfers</div>
-    <ul id="moveList"></ul>
-  </div>
-
-  <div class="card">
-    <form id="form">
-      <input class="full" id="note" placeholder="What was it for? (e.g. Lunch)" required maxlength="100">
-      <input id="amount" type="number" inputmode="decimal" min="0.01" max="999999999" step="0.01" placeholder="Amount (₹)" required>
-      <select id="category">
-        <option>Food</option><option>Transport</option><option>Bills</option>
-        <option>Shopping</option><option>Health</option><option>Entertainment</option><option>Miscellaneous</option>
-      </select>
-      <input class="full" id="date" type="date" required>
-      <button class="primary full" type="submit">Add expense</button>
-    </form>
-  </div>
-
-  <div class="card">
-    <div class="row">
-      <select id="filterCat"><option value="">All categories</option></select>
+  <section id="pageEntry">
+    <div class="card group">
+      <div class="gh"><span class="gnum">1</span> 💵 Income received</div>
+      <form id="incForm">
+        <input id="incAmt" type="number" inputmode="decimal" min="0.01" max="999999999" step="0.01" placeholder="Amount (₹)" required>
+        <input id="incDate" type="date" required>
+        <input class="full" id="incNote" placeholder="Source / note (e.g. October salary)" maxlength="100">
+        <button class="primary full" type="submit">Add income</button>
+      </form>
+      <div class="sub">This month's income</div>
+      <ul id="incList"></ul>
     </div>
-    <ul id="list"></ul>
-  </div>
 
-  <div class="card">
-    <strong>By category (whole month)</strong>
-    <div id="breakdown"></div>
-  </div>
-
-  <div class="card" id="analysis">
-    <strong>📊 Analysis</strong>
-    <div class="tiles" id="tiles"></div>
-    <div id="advice" class="advice"></div>
-    <div class="sub">Daily spending</div>
-    <div id="daily"></div>
-    <div class="sub">Who spent how much</div>
-    <div id="byPerson"></div>
-    <div class="sub">Month history (tap a row to open it)</div>
-    <div id="history" style="overflow-x:auto"></div>
-  </div>
-
-  <div class="card" id="compare">
-    <strong>⚖️ Compare two months</strong>
-    <div class="row" style="margin-top:10px;flex-wrap:wrap">
-      <input type="month" id="cmpA" aria-label="First month" style="flex:1 1 100%">
-      <input type="month" id="cmpB" aria-label="Second month" style="flex:1 1 100%">
+    <div class="card group">
+      <div class="gh"><span class="gnum">2</span> 🔁 Wallet transfer to family member</div>
+      <div id="wallets"></div>
+      <form id="trForm">
+        <input class="full" id="trTo" placeholder="Transfer to (e.g. Kajal)" required maxlength="30">
+        <input id="trAmt" type="number" inputmode="decimal" min="0.01" max="999999999" step="0.01" placeholder="Amount (₹)" required>
+        <input id="trDate" type="date" required>
+        <input class="full" id="trNote" placeholder="Note (optional)" maxlength="100">
+        <button class="primary full" type="submit">Transfer</button>
+      </form>
+      <div class="sub">This month's transfers</div>
+      <ul id="trList"></ul>
     </div>
-    <div id="cmpOut" style="overflow-x:auto"></div>
-  </div>
 
-  <div class="row" style="flex-wrap:wrap">
-    <button class="small" id="share">Copy invite link</button>
-    <button class="small" id="export">Export month (CSV)</button>
-    <button class="small" id="exportAll">Backup all data (CSV)</button>
-    <button class="small" id="settings">Settings</button>
-  </div>
+    <div class="card group">
+      <div class="gh"><span class="gnum">3</span> 🧾 Expense booking</div>
+      <form id="form">
+        <input class="full" id="note" placeholder="What was it for? (e.g. Lunch)" required maxlength="100">
+        <input id="amount" type="number" inputmode="decimal" min="0.01" max="999999999" step="0.01" placeholder="Amount (₹)" required>
+        <select id="category">
+          <option>Food</option><option>Transport</option><option>Bills</option>
+          <option>Shopping</option><option>Health</option><option>Entertainment</option><option>Miscellaneous</option>
+        </select>
+        <input class="full" id="date" type="date" required>
+        <button class="primary full" type="submit">Add expense</button>
+      </form>
+      <div class="sub">This month's expenses</div>
+      <div class="row"><select id="filterCat"><option value="">All categories</option></select></div>
+      <ul id="list"></ul>
+    </div>
+
+    <div class="row" style="flex-wrap:wrap">
+      <button class="small" id="share">Copy invite link</button>
+      <button class="small" id="settings">Settings</button>
+    </div>
+  </section>
+
+  <section id="pageAnalysis" hidden>
+    <div class="card">
+      <strong>📈 Month-on-month (MoM)</strong>
+      <div id="momSummary" class="advice"></div>
+      <div id="momOut" style="overflow-x:auto"></div>
+    </div>
+
+    <div class="card">
+      <strong>Trend – last 6 months</strong> <span class="meta">(tap a bar to open that month)</span>
+      <div id="trend"></div>
+    </div>
+
+    <div class="card">
+      <strong>By category (whole month)</strong>
+      <div id="breakdown"></div>
+    </div>
+
+    <div class="card" id="analysis">
+      <strong>📊 This month in detail</strong>
+      <div class="tiles" id="tiles"></div>
+      <div id="advice" class="advice"></div>
+      <div class="sub">Daily spending</div>
+      <div id="daily"></div>
+      <div class="sub">Who spent how much</div>
+      <div id="byPerson"></div>
+      <div class="sub">Month history (tap a row to open it)</div>
+      <div id="history" style="overflow-x:auto"></div>
+    </div>
+
+    <div class="card" id="compare">
+      <strong>⚖️ Compare any two months</strong>
+      <div class="row" style="margin-top:10px;flex-wrap:wrap">
+        <input type="month" id="cmpA" aria-label="First month" style="flex:1 1 100%">
+        <input type="month" id="cmpB" aria-label="Second month" style="flex:1 1 100%">
+      </div>
+      <div id="cmpOut" style="overflow-x:auto"></div>
+    </div>
+
+    <div class="row" style="flex-wrap:wrap">
+      <button class="small" id="export">Export month (CSV)</button>
+      <button class="small" id="exportAll">Backup all data (CSV)</button>
+    </div>
+  </section>
 </main>
+
+<nav class="tabs" aria-label="Pages">
+  <button type="button" id="tabEntry" class="on">📝 Entry</button>
+  <button type="button" id="tabAnalysis">📊 Analysis (MoM)</button>
+</nav>
 
 <script type="module" src="app.js"></script>
 </body>
