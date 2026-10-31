@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Family Expense Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#3b5bdb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Expenses">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+  :root { --bg:#f5f6fa; --card:#fff; --text:#1d2433; --muted:#6b7385; --accent:#3b5bdb; --danger:#d6336c; --border:#e3e6ee; --ok:#2f9e44; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12151c; --card:#1b1f2a; --text:#e8eaf0; --muted:#8d95a8; --accent:#748ffc; --danger:#f06595; --border:#2a3040; --ok:#69db7c; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text);
+         padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  main { max-width:640px; margin:0 auto; padding:16px; }
+  header { display:flex; justify-content:space-between; align-items:center; }
+  h1 { font-size:1.3rem; margin:8px 0 12px; }
+  .status { font-size:.75rem; color:var(--muted); }
+  .status.on { color:var(--ok); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .totals { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center; }
+  .totals div span { display:block; font-size:.75rem; color:var(--muted); }
+  .totals div strong { font-size:1.05rem; }
+  form { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  form .full { grid-column:1/-1; }
+  input, select, button { font:inherit; font-size:16px; /* 16px stops iOS zoom-on-focus */ padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); width:100%; min-width:0; }
+  button.primary { background:var(--accent); color:#fff; border:none; cursor:pointer; font-weight:600; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .row input, .row select { flex:1; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 0; border-bottom:1px solid var(--border); }
+  li:last-child { border-bottom:none; }
+  .meta { font-size:.8rem; color:var(--muted); }
+  .amt { font-weight:600; white-space:nowrap; }
+  .del { background:none; border:none; color:var(--danger); cursor:pointer; width:auto; padding:4px 10px; font-size:1.1rem; }
+  .bar { height:8px; background:var(--accent); border-radius:4px; margin-top:4px; }
+  .track { height:10px; background:var(--border); border-radius:5px; margin-top:12px; overflow:hidden; }
+  .fill { height:100%; width:0; background:var(--ok); transition:width .3s; }
+  .fill.over { background:var(--danger); }
+  .neg { color:var(--danger); }
+  .empty { color:var(--muted); text-align:center; padding:12px; }
+  .small { width:auto; padding:8px 12px; cursor:pointer; }
+  .note { font-size:.85rem; color:var(--muted); margin:0 0 10px; }
+  .warn { border-color:var(--danger); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>💸 Family Expenses</h1>
+    <span class="status" id="status"></span>
+  </header>
+
+  <!-- First-run setup: your name + shared family code -->
+  <div class="card" id="setup" hidden>
+    <strong>Set up</strong>
+    <p class="note">Use the <b>same family code</b> on both phones to share one list. Pick something long and hard to guess; anyone with the code can see the expenses.</p>
+    <form id="setupForm">
+      <input class="full" id="userName" placeholder="Your name (e.g. Adarsh)" required maxlength="30">
+      <input class="full" id="familyCode" placeholder="Family code (e.g. carrum-7k2x9-blue-tiger)" required minlength="8" maxlength="60" autocapitalize="none" autocomplete="off">
+      <button class="primary full" type="submit">Save</button>
+    </form>
+  </div>
+
+  <div class="card warn" id="localWarn" hidden>
+    <p class="note" style="margin:0">Sync isn't configured yet, so this phone keeps its own separate list. See SETUP.md to turn on sharing.</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <input type="month" id="month" aria-label="Month">
+      <input type="number" id="budgetInput" inputmode="decimal" min="0" step="0.01" placeholder="Monthly budget (₹)" aria-label="Monthly budget">
+      <button class="primary small" id="budgetSave" type="button">Set</button>
+    </div>
+    <div class="totals">
+      <div><span>Budget</span><strong id="tBudget">–</strong></div>
+      <div><span>Spent</span><strong id="tSpent">₹0</strong></div>
+      <div><span>Remaining</span><strong id="tRemain">–</strong></div>
+    </div>
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <div class="meta" id="miscLine" style="margin-top:8px"></div>
+    <div class="meta" id="todayLine"></div>
+  </div>
+
+  <div class="card">
+    <form id="form">
+      <input class="full" id="note" placeholder="What was it for? (e.g. Lunch)" required maxlength="100">
+      <input id="amount" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="Amount (₹)" required>
+      <select id="category">
+        <option>Food</option><option>Transport</option><option>Bills</option>
+        <option>Shopping</option><option>Health</option><option>Entertainment</option><option>Miscellaneous</option>
+      </select>
+      <input class="full" id="date" type="date" required>
+      <button class="primary full" type="submit">Add expense</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <select id="filterCat"><option value="">All categories</option></select>
+    </div>
+    <ul id="list"></ul>
+  </div>
+
+  <div class="card">
+    <strong>By category (whole month)</strong>
+    <div id="breakdown"></div>
+  </div>
+
+  <div class="row">
+    <button class="small" id="share">Copy invite link</button>
+    <button class="small" id="export">Export month (CSV)</button>
+    <button class="small" id="settings">Settings</button>
+  </div>
+</main>
+
+<script type="module">
+import { firebaseConfig } from './firebase-config.js';
+
+const $ = id => document.getElementById(id);
+const LS = {
+  get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
+const fmt = n => inr.format(n);
+const pad = n => String(n).padStart(2, '0');
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
+
+// ---- identity: name + family code (invite link: #family=CODE) ----
+const hashCode = new URLSearchParams(location.hash.slice(1)).get('family');
+if (hashCode) { LS.set('familyCode', hashCode.trim()); history.replaceState(null, '', location.pathname + location.search); }
+let userName = LS.get('userName') || '';
+let familyCode = LS.get('familyCode') || '';
+const syncConfigured = !!firebaseConfig.apiKey;
+
+// ---- stores: Firestore (shared) or localStorage (fallback) ----
+let items = [];
+let store = null;
+
+function localStore() {
+  const KEY = 'expenses.v2';
+  let data = [];
+  try { data = JSON.parse(LS.get(KEY)) || []; } catch (e) {}
+  const persist = () => LS.set(KEY, JSON.stringify(data));
+  const readB = () => { try { return JSON.parse(LS.get('budgets.v1')) || {}; } catch (e) { return {}; } };
+  return {
+    label: 'Local only',
+    subscribe(cb) { cb(data.slice()); },
+    add(x) { data.push(x); persist(); this.subscribe(cb2); },
+    remove(id) { data = data.filter(d => d.id !== id); persist(); this.subscribe(cb2); },
+    subscribeBudgets(cb) { cb(readB()); },
+    setBudget(month, amount, by) { const b = readB(); b[month] = amount; LS.set('budgets.v1', JSON.stringify(b)); this.subscribeBudgets(cbB); }
+  };
+}
+let cb2 = list => { items = list; render(); };
+let budgets = {};
+let cbB = b => { budgets = b; render(); };
+
+async function firestoreStore(code) {
+  const V = '10.12.2';
+  const [{ initializeApp }, fs] = await Promise.all([
+    import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`)
+  ]);
+  const app = initializeApp(firebaseConfig);
+  const db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) });
+  const col = fs.collection(db, 'families', code, 'expenses');
+  const bcol = fs.collection(db, 'families', code, 'budgets');
+  return {
+    label: 'Synced',
+    subscribe(cb, onState) {
+      return fs.onSnapshot(col, { includeMetadataChanges: true }, snap => {
+        cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        onState && onState(snap.metadata.fromCache && !snap.metadata.hasPendingWrites ? 'offline' : 'online');
+      }, err => { console.error(err); onState && onState('error'); });
+    },
+    add(x) { const { id, ...rest } = x; return fs.setDoc(fs.doc(col, id), { ...rest, createdAt: fs.serverTimestamp() }); },
+    remove(id) { return fs.deleteDoc(fs.doc(col, id)); },
+    subscribeBudgets(cb) {
+      return fs.onSnapshot(bcol, snap => { const b = {}; snap.docs.forEach(d => b[d.id] = Number(d.data().amount) || 0); cb(b); }, err => console.error(err));
+    },
+    setBudget(month, amount, by) { return fs.setDoc(fs.doc(bcol, month), { amount, by }); }
+  };
+}
+
+function setStatus(state) {
+  const el = $('status');
+  el.className = 'status' + (state === 'online' ? ' on' : '');
+  el.textContent = { online: '● Synced', offline: '○ Offline – will sync later', error: '⚠ Sync error', local: 'Local only' }[state] || '';
+}
+
+async function start() {
+  const needSetup = !userName || (syncConfigured && !familyCode);
+  $('setup').hidden = !needSetup;
+  $('localWarn').hidden = syncConfigured;
+  $('userName').value = userName;
+  $('familyCode').value = familyCode;
+  $('familyCode').required = syncConfigured;
+  if (!syncConfigured) $('familyCode').hidden = true;
+  $('share').hidden = !syncConfigured || !familyCode;
+
+  if (syncConfigured && familyCode) {
+    try {
+      store = await firestoreStore(familyCode);
+      store.subscribe(list => { items = list; render(); }, setStatus);
+      store.subscribeBudgets(cbB);
+    } catch (e) {
+      console.error(e);
+      setStatus('error');
+      store = localStore(); store.subscribe(cb2); store.subscribeBudgets(cbB);
+    }
+  } else {
+    store = localStore(); store.subscribe(cb2); store.subscribeBudgets(cbB); setStatus('local');
+  }
+}
+
+// ---- UI ----
+$('date').value = today();
+$('month').value = today().slice(0, 7);
+[...$('category').options].forEach(o => $('filterCat').add(new Option(o.value, o.value)));
+
+const MISC = 'Miscellaneous';
+const isMisc = c => c === MISC || c === 'Other'; // 'Other' = older entries
+function monthItems(m) { return items.filter(x => (x.date || '').startsWith(m)); }
+const sumOf = a => a.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+function render() {
+  const m = $('month').value, cat = $('filterCat').value;
+  const mi = monthItems(m);
+  const spent = sumOf(mi);
+  const budget = budgets[m];
+  const hasB = typeof budget === 'number';
+  if (document.activeElement !== $('budgetInput')) $('budgetInput').value = hasB ? budget : '';
+  $('tBudget').textContent = hasB ? fmt(budget) : 'not set';
+  $('tSpent').textContent = fmt(spent);
+  const rem = hasB ? budget - spent : null;
+  $('tRemain').textContent = hasB ? fmt(rem) : '–';
+  $('tRemain').className = hasB && rem < 0 ? 'neg' : '';
+  $('fill').style.width = hasB && budget > 0 ? Math.min(100, spent / budget * 100) + '%' : '0';
+  $('fill').className = 'fill' + (hasB && spent > budget ? ' over' : '');
+  const misc = sumOf(mi.filter(x => isMisc(x.category)));
+  $('miscLine').textContent = `Miscellaneous this month: ${fmt(misc)}` + (spent ? ` (${Math.round(misc / spent * 100)}% of spending)` : '');
+  $('todayLine').textContent = m === today().slice(0, 7) ? `Spent today: ${fmt(sumOf(items.filter(x => x.date === today())))}` : '';
+
+  const view = mi.filter(x => !cat || x.category === cat).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  $('list').innerHTML = view.length ? view.map(x => `
+    <li>
+      <div><div>${esc(x.note)}</div><div class="meta">${esc(x.date)} · ${esc(x.category)}${x.by ? ' · ' + esc(x.by) : ''}</div></div>
+      <div><span class="amt">${fmt(Number(x.amount) || 0)}</span><button class="del" data-id="${esc(x.id)}" aria-label="Delete">✕</button></div>
+    </li>`).join('') : '<div class="empty">No expenses for this month.</div>';
+
+  const by = {};
+  mi.forEach(x => by[x.category] = (by[x.category] || 0) + (Number(x.amount) || 0));
+  const max = Math.max(0, ...Object.values(by));
+  $('breakdown').innerHTML = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+    `<div style="margin-top:10px"><div class="row" style="justify-content:space-between;margin:0"><span>${esc(k)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${v / max * 100}%"></div></div>`
+  ).join('') || '<div class="empty">Nothing to show.</div>';
+}
+
+$('setupForm').addEventListener('submit', e => {
+  e.preventDefault();
+  LS.set('userName', $('userName').value.trim());
+  if (syncConfigured) LS.set('familyCode', $('familyCode').value.trim());
+  location.reload();
+});
+$('settings').addEventListener('click', () => { $('setup').hidden = false; $('setup').scrollIntoView({ behavior: 'smooth' }); });
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!userName) { $('setup').hidden = false; $('userName').focus(); return; }
+  const x = { id: uid(), note: $('note').value.trim(), amount: parseFloat($('amount').value), category: $('category').value, date: $('date').value, by: userName };
+  $('note').value = ''; $('amount').value = ''; $('note').focus();
+  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); }
+});
+$('list').addEventListener('click', async e => {
+  const id = e.target.dataset.id;
+  if (!id || !confirm('Delete this expense?')) return;
+  try { await store.remove(id); } catch (err) { console.error(err); setStatus('error'); }
+});
+$('month').addEventListener('change', () => { $('budgetInput').value = ''; render(); });
+$('budgetSave').addEventListener('click', async () => {
+  const v = parseFloat($('budgetInput').value);
+  if (!(v >= 0)) { alert('Enter the budget amount for this month.'); return; }
+  if (!userName) { $('setup').hidden = false; $('userName').focus(); return; }
+  try { await store.setBudget($('month').value, v, userName); } catch (err) { console.error(err); setStatus('error'); }
+});
+$('filterCat').addEventListener('change', render);
+
+$('share').addEventListener('click', async () => {
+  const link = `${location.origin}${location.pathname}#family=${encodeURIComponent(familyCode)}`;
+  try { await navigator.clipboard.writeText(link); alert('Invite link copied. Send it to your wife and open it on her phone.'); }
+  catch (e) { prompt('Copy this invite link:', link); }
+});
+$('export').addEventListener('click', () => {
+  const m = $('month').value, mi = monthItems(m).sort((a, b) => a.date.localeCompare(b.date));
+  const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+  const spent = sumOf(mi), budget = budgets[m], hasB = typeof budget === 'number';
+  const misc = sumOf(mi.filter(x => isMisc(x.category)));
+  const by = {}; mi.forEach(x => by[x.category] = (by[x.category] || 0) + x.amount);
+  const lines = [
+    `Monthly report,${m}`,
+    `Budget,${hasB ? budget : ''}`,
+    `Total spent,${spent}`,
+    `Remaining,${hasB ? budget - spent : ''}`,
+    `Miscellaneous spent,${misc}`,
+    `Miscellaneous % of spending,${spent ? (misc / spent * 100).toFixed(1) : 0}`,
+    '', 'Category,Spent,% of spending',
+    ...Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${q(k)},${v},${(v / spent * 100).toFixed(1)}`),
+    '', 'Date,Note,Category,Amount,Added by',
+    ...mi.map(x => [x.date, q(x.note), q(x.category), x.amount, q(x.by || '')].join(','))
+  ];
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
+  a.download = `expenses-${m}.csv`;
+  a.click();
+});
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+start();
+</script>
+</body>
+</html>
