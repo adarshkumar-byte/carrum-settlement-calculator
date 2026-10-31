@@ -2,27 +2,43 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Expenses, income and transfers for one family. The family code (document path
-    // segment) is the shared secret; it must be 8-60 characters.
-    match /families/{code}/expenses/{id} {
-      allow read, delete: if code.size() >= 8 && code.size() <= 60;
-      allow create, update: if code.size() >= 8 && code.size() <= 60
-        && request.resource.data.keys().hasOnly(['note','amount','category','date','by','createdAt'])
-        && request.resource.data.keys().hasAll(['note','amount','category','date','by'])
-        && request.resource.data.amount is number
-        && request.resource.data.amount > 0
-        && request.resource.data.note is string
-        && request.resource.data.note.size() <= 100;
+    // The family code (a path segment) is the shared secret: 8-60 characters.
+    // Documents are validated strictly: allowed fields only, correct types, size limits.
+    function okCode(code) { return code.size() >= 8 && code.size() <= 60; }
+
+    function validExpense(d) {
+      return d.keys().hasOnly(['note','amount','category','date','by','createdAt'])
+        && d.keys().hasAll(['note','amount','category','date','by'])
+        && d.note is string && d.note.size() <= 100
+        && d.amount is number && d.amount > 0 && d.amount < 1000000000
+        && d.category is string && d.category.size() >= 1 && d.category.size() <= 50
+        && d.by is string && d.by.size() >= 1 && d.by.size() <= 30
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (!('createdAt' in d) || d.createdAt is timestamp);
     }
 
-    // One budget document per month (document id like 2026-10).
-    match /families/{code}/budgets/{month} {
-      allow read, delete: if code.size() >= 8 && code.size() <= 60;
-      allow create, update: if code.size() >= 8 && code.size() <= 60
-        && request.resource.data.keys().hasOnly(['amount','by'])
-        && request.resource.data.keys().hasAll(['amount','by'])
-        && request.resource.data.amount is number
-        && request.resource.data.amount >= 0;
+    function validBudget(d) {
+      return d.keys().hasOnly(['amount','by'])
+        && d.keys().hasAll(['amount','by'])
+        && d.amount is number && d.amount >= 0 && d.amount < 1000000000
+        && d.by is string && d.by.size() >= 1 && d.by.size() <= 30;
     }
+
+    // Expenses, income (category '@income') and transfers (category '@transfer:<name>').
+    match /families/{code}/expenses/{id} {
+      // (no {id} checks on read: a collection query has no single document id)
+      allow read: if okCode(code);
+      allow delete: if okCode(code) && id.size() <= 64;
+      allow create, update: if okCode(code) && id.size() <= 64 && validExpense(request.resource.data);
+    }
+
+    // One budget per month; the document id is the month, e.g. 2026-10.
+    match /families/{code}/budgets/{month} {
+      allow read: if okCode(code);
+      allow delete: if okCode(code) && month.matches('^[0-9]{4}-[0-9]{2}$');
+      allow create, update: if okCode(code) && month.matches('^[0-9]{4}-[0-9]{2}$') && validBudget(request.resource.data);
+    }
+
+    // Everything else is closed.
   }
 }
