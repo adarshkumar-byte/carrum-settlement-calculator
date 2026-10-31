@@ -81,6 +81,11 @@
   .down { color:var(--ok); }
   tr.go { cursor:pointer; }
   tr.sel td { font-weight:700; }
+  .wallet { padding:10px 0; border-bottom:1px solid var(--border); }
+  .wallet:last-child { border-bottom:none; }
+  .wallet .top { display:flex; justify-content:space-between; align-items:baseline; }
+  .wallet .bal { font-size:1.35rem; font-weight:700; }
+  .wallet .det { font-size:.78rem; color:var(--muted); margin-top:2px; }
   .empty { color:var(--muted); text-align:center; padding:12px; }
   .small { width:auto; padding:8px 12px; cursor:pointer; }
   .note { font-size:.85rem; color:var(--muted); margin:0 0 10px; }
@@ -128,6 +133,25 @@
     <div class="track"><div class="fill" id="fill"></div></div>
     <div class="meta" id="miscLine" style="margin-top:8px"></div>
     <div class="meta" id="todayLine"></div>
+  </div>
+
+  <div class="card" id="walletCard">
+    <strong>💰 Wallets (income &amp; transfers)</strong>
+    <div id="wallets"></div>
+    <div class="sub">Add income or a transfer</div>
+    <form id="moveForm">
+      <select id="moveType" class="full" aria-label="Type">
+        <option value="income">Income received (e.g. salary)</option>
+        <option value="transfer">Transfer to someone</option>
+      </select>
+      <input class="full" id="moveTo" placeholder="Transfer to (e.g. Kajal)" maxlength="30" hidden>
+      <input id="moveAmt" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="Amount (₹)" required>
+      <input id="moveDate" type="date" required>
+      <input class="full" id="moveNote" placeholder="Note (optional, e.g. October salary)" maxlength="100">
+      <button class="primary full" type="submit">Add</button>
+    </form>
+    <div class="sub">This month's income &amp; transfers</div>
+    <ul id="moveList"></ul>
   </div>
 
   <div class="card">
@@ -221,7 +245,13 @@ let familyCode = LS.get('familyCode') || '';
 const syncConfigured = !!firebaseConfig.apiKey;
 
 // ---- stores: Firestore (shared) or localStorage (fallback) ----
-let items = [];
+let items = [];   // expenses only
+let moves = [];   // income + transfers (stored in the same collection, category starts with '@')
+const isMove = x => String(x.category || '').startsWith('@');
+const moveKind = x => (x.category === '@income' ? 'income' : 'transfer');
+const moveTo = x => String(x.category || '').slice('@transfer:'.length);
+const norm = v => String(v || '').trim().toLowerCase();
+function setAll(list) { items = list.filter(x => !isMove(x)); moves = list.filter(isMove); render(); }
 let store = null;
 
 function localStore() {
@@ -239,7 +269,7 @@ function localStore() {
     setBudget(month, amount, by) { const b = readB(); b[month] = amount; LS.set('budgets.v1', JSON.stringify(b)); this.subscribeBudgets(cbB); }
   };
 }
-let cb2 = list => { items = list; render(); };
+let cb2 = setAll;
 let budgets = {};
 let cbB = b => { budgets = b; render(); };
 
@@ -289,7 +319,7 @@ async function start() {
   if (syncConfigured && familyCode) {
     try {
       store = await firestoreStore(familyCode);
-      store.subscribe(list => { items = list; render(); }, setStatus);
+      store.subscribe(setAll, setStatus);
       store.subscribeBudgets(cbB);
     } catch (e) {
       console.error(e);
@@ -369,10 +399,54 @@ function render() {
     `<div style="margin-top:10px"><div class="row" style="justify-content:space-between;margin:0"><span><span class="dot" style="background:${catColor(k)}"></span>${esc(k)}</span><span>${fmt(v)}</span></div><div class="bar" style="width:${v / max * 100}%;background:${catColor(k)}"></div></div>`
   ).join('') || '<div class="empty">Nothing to show.</div>';
   renderAnalysis(m, mi, spent, budget);
+  renderWallets(m);
 }
 
 const daysIn = m => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo, 0).getDate(); };
 const monthLabel = m => { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, 1).toLocaleString('en-IN', { month: 'short', year: '2-digit' }); };
+
+// Use the spelling a person typed as their own name; otherwise capitalise the first letter.
+function canonName(n) {
+  const k = norm(n), t = String(n || '').trim();
+  const known = [...items, ...moves].map(x => x.by).find(b => norm(b) === k);
+  return known ? String(known).trim() : t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+function renderWallets(m) {
+  // Per person: balance = income + received - sent - own expenses, counted from that person's first income/transfer.
+  const people = new Map(), start = {};
+  const touch = (n, d) => { const k = norm(n); if (!k) return; if (!people.has(k)) people.set(k, String(n).trim()); if (!start[k] || d < start[k]) start[k] = d; };
+  moves.forEach(x => { touch(x.by, x.date); if (moveKind(x) === 'transfer') touch(moveTo(x), x.date); });
+  [...items, ...moves].forEach(x => { const k = norm(x.by); if (people.has(k)) people.set(k, String(x.by).trim()); });
+  const st = {}; people.forEach((_, k) => st[k] = { bal: 0, inc: 0, recv: 0, sent: 0, spent: 0 });
+  const upto = d => (d || '').slice(0, 7) <= m, inMonth = d => (d || '').startsWith(m);
+  moves.forEach(x => {
+    const a = Number(x.amount) || 0, by = norm(x.by);
+    if (!st[by]) return;
+    if (moveKind(x) === 'income') { if (upto(x.date)) st[by].bal += a; if (inMonth(x.date)) st[by].inc += a; }
+    else { const to = norm(moveTo(x));
+      if (upto(x.date)) { st[by].bal -= a; if (st[to]) st[to].bal += a; }
+      if (inMonth(x.date)) { st[by].sent += a; if (st[to]) st[to].recv += a; } }
+  });
+  items.forEach(x => {
+    const k = norm(x.by), a = Number(x.amount) || 0;
+    if (!st[k] || (x.date || '') < start[k]) return;
+    if (upto(x.date)) st[k].bal -= a;
+    if (inMonth(x.date)) st[k].spent += a;
+  });
+  const parts = (o) => [o.inc && `income ${fmt0(o.inc)}`, o.recv && `received ${fmt0(o.recv)}`, o.sent && `sent ${fmt0(o.sent)}`, o.spent && `spent ${fmt0(o.spent)}`].filter(Boolean).join(' · ');
+  $('wallets').innerHTML = people.size ? [...people].map(([k, name], i) => `
+    <div class="wallet"><div class="top"><span><span class="dot" style="background:${PERSON_COLORS[i % 4]}"></span>${esc(name)}</span>
+    <span class="bal ${st[k].bal < 0 ? 'neg' : 'pos'}">${fmt(st[k].bal)}</span></div>
+    <div class="det">${parts(st[k]) || 'No activity this month'} <span style="opacity:.7">(this month)</span></div></div>`).join('')
+    : '<div class="empty">Add your income, then transfer money to Kajal. Her balance will show here on both phones.</div>';
+
+  const list = moves.filter(x => inMonth(x.date)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  $('moveList').innerHTML = list.length ? list.map(x => `
+    <li><div><div>${moveKind(x) === 'income' ? '⬇️ Income' : '➡️ Transfer to ' + esc(canonName(moveTo(x)))}${x.note ? ' · ' + esc(x.note) : ''}</div><div class="meta">${esc(x.date)}${x.by ? ' · ' + esc(x.by) : ''}</div></div>
+    <div><span class="amt ${moveKind(x) === 'income' ? 'pos' : ''}">${fmt(Number(x.amount) || 0)}</span><button class="del" data-id="${esc(x.id)}" aria-label="Delete">✕</button></div></li>`).join('')
+    : '<div class="empty">Nothing this month.</div>';
+}
 
 function renderAnalysis(m, mi, spent, budget) {
   const isCur = m === today().slice(0, 7);
@@ -494,6 +568,25 @@ $('form').addEventListener('submit', async e => {
   $('note').value = ''; $('amount').value = ''; $('note').focus();
   try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); $('note').value = note; $('amount').value = amt; alert('Could not save this expense. Please try again.'); }
 });
+$('moveType').addEventListener('change', () => { $('moveTo').hidden = $('moveType').value !== 'transfer'; $('moveTo').required = !$('moveTo').hidden; });
+$('moveTo').value = LS.get('lastTo') || 'Kajal';
+$('moveDate').value = today();
+$('moveForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!userName) { $('setup').hidden = false; $('userName').focus(); return; }
+  if (!store) { alert('Still connecting – please wait a moment and tap Add again.'); return; }
+  const type = $('moveType').value, amt = parseFloat($('moveAmt').value), to = $('moveTo').value.trim();
+  if (!(amt > 0) || !$('moveDate').value || (type === 'transfer' && !to)) return;
+  const x = { id: uid(), note: $('moveNote').value.trim(), amount: amt, category: type === 'income' ? '@income' : '@transfer:' + canonName(to), date: $('moveDate').value, by: userName };
+  if (type === 'transfer') { if (norm(to) === norm(userName)) { alert('Transfer to someone else (not yourself).'); return; } LS.set('lastTo', to); }
+  $('moveAmt').value = ''; $('moveNote').value = '';
+  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); $('moveAmt').value = amt; alert('Could not save. Please try again.'); }
+});
+$('moveList').addEventListener('click', async e => {
+  const id = e.target.dataset.id;
+  if (!id || !confirm('Delete this entry?')) return;
+  try { await store.remove(id); } catch (err) { console.error(err); setStatus('error'); }
+});
 $('list').addEventListener('click', async e => {
   const id = e.target.dataset.id;
   if (!id || !confirm('Delete this expense?')) return;
@@ -540,7 +633,9 @@ $('export').addEventListener('click', () => {
     '', 'Category,Spent,% of spending',
     ...Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${csvq(k)},${v},${spent ? (v / spent * 100).toFixed(1) : 0}`),
     '', 'Date,Note,Category,Amount,Added by',
-    ...mi.map(x => [x.date, csvq(x.note), csvq(x.category), x.amount, csvq(x.by || '')].join(','))
+    ...mi.map(x => [x.date, csvq(x.note), csvq(x.category), x.amount, csvq(x.by || '')].join(',')),
+    '', 'Income and transfers (this month)', 'Date,Type,To,Amount,Added by,Note',
+    ...moves.filter(x => (x.date || '').startsWith(m)).sort((a, b) => a.date.localeCompare(b.date)).map(x => [x.date, moveKind(x), csvq(moveKind(x) === 'transfer' ? moveTo(x) : ''), x.amount, csvq(x.by || ''), csvq(x.note)].join(','))
   ]);
 });
 $('exportAll').addEventListener('click', () => {
@@ -549,7 +644,9 @@ $('exportAll').addEventListener('click', () => {
     'Month,Budget',
     ...Object.entries(budgets).sort().map(([k, v]) => `${k},${v}`),
     '', 'Date,Note,Category,Amount,Added by',
-    ...all.map(x => [x.date, csvq(x.note), csvq(x.category), x.amount, csvq(x.by || '')].join(','))
+    ...all.map(x => [x.date, csvq(x.note), csvq(x.category), x.amount, csvq(x.by || '')].join(',')),
+    '', 'Income and transfers', 'Date,Type,To,Amount,Added by,Note',
+    ...moves.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(x => [x.date, moveKind(x), csvq(moveKind(x) === 'transfer' ? moveTo(x) : ''), x.amount, csvq(x.by || ''), csvq(x.note)].join(','))
   ]);
 });
 
