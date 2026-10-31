@@ -36,7 +36,9 @@
   .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
   .row input, .row select { flex:1; }
   .hero .row { flex-wrap:wrap; }
-  #month { flex:1 1 100%; }
+  #month { flex:1 1 0; min-width:0; }
+  .navbtn { flex:0 0 44px; padding:10px 0; font-size:1.2rem; text-align:center; }
+  .hero .row + .row { margin-top:0; }
   #budgetInput { flex:1 1 0; min-width:0; }
   .totals { gap:6px; }
   .totals div { min-width:0; }
@@ -72,9 +74,13 @@
   .advice { margin-top:12px; padding:10px; border-radius:10px; background:var(--bg); border:1px solid var(--border); font-size:.9rem; }
   .sub { margin:16px 0 6px; font-size:.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
   table { width:100%; border-collapse:collapse; font-size:.85rem; }
-  th, td { text-align:right; padding:6px 4px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th, td { text-align:right; padding:6px 3px; font-size:.8rem; border-bottom:1px solid var(--border); white-space:nowrap; }
   th:first-child, td:first-child { text-align:left; }
   th { color:var(--muted); font-weight:500; }
+  .up { color:var(--danger); }
+  .down { color:var(--ok); }
+  tr.go { cursor:pointer; }
+  tr.sel td { font-weight:700; }
   .empty { color:var(--muted); text-align:center; padding:12px; }
   .small { width:auto; padding:8px 12px; cursor:pointer; }
   .note { font-size:.85rem; color:var(--muted); margin:0 0 10px; }
@@ -106,7 +112,11 @@
 
   <div class="card hero">
     <div class="row">
+      <button class="small navbtn" id="prevM" type="button" aria-label="Previous month">‹</button>
       <input type="month" id="month" aria-label="Month">
+      <button class="small navbtn" id="nextM" type="button" aria-label="Next month">›</button>
+    </div>
+    <div class="row">
       <input type="number" id="budgetInput" inputmode="decimal" min="0" step="0.01" placeholder="Monthly budget (₹)" aria-label="Monthly budget">
       <button class="primary small" id="budgetSave" type="button">Set</button>
     </div>
@@ -153,13 +163,23 @@
     <div id="daily"></div>
     <div class="sub">Who spent how much</div>
     <div id="byPerson"></div>
-    <div class="sub">Last 6 months</div>
+    <div class="sub">Month history (tap a row to open it)</div>
     <div id="history" style="overflow-x:auto"></div>
   </div>
 
-  <div class="row">
+  <div class="card" id="compare">
+    <strong>⚖️ Compare two months</strong>
+    <div class="row" style="margin-top:10px;flex-wrap:wrap">
+      <input type="month" id="cmpA" aria-label="First month" style="flex:1 1 100%">
+      <input type="month" id="cmpB" aria-label="Second month" style="flex:1 1 100%">
+    </div>
+    <div id="cmpOut" style="overflow-x:auto"></div>
+  </div>
+
+  <div class="row" style="flex-wrap:wrap">
     <button class="small" id="share">Copy invite link</button>
     <button class="small" id="export">Export month (CSV)</button>
+    <button class="small" id="exportAll">Backup all data (CSV)</button>
     <button class="small" id="settings">Settings</button>
   </div>
 </main>
@@ -174,9 +194,23 @@ const LS = {
 };
 const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
 const fmt = n => inr.format(n);
+const inr0 = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
+const fmt0 = n => inr0.format(n); // compact, for tables
 const pad = n => String(n).padStart(2, '0');
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const csvq = v => { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return '"' + t.replace(/"/g, '""') + '"'; }; // quotes + blocks spreadsheet formula injection
+async function saveCsv(name, lines) {
+  const text = '\ufeff' + lines.join('\n');
+  try {
+    const file = new File([text], name, { type: 'text/csv' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(36).slice(2));
 
 // ---- identity: name + family code (invite link: #family=CODE) ----
@@ -267,9 +301,26 @@ async function start() {
   }
 }
 
+function offerMigration() {
+  if (!store || store.label !== 'Synced' || !userName || LS.get('migrated.v2')) return;
+  let old = [], ob = {};
+  try { old = JSON.parse(LS.get('expenses.v2')) || []; } catch (e) {}
+  try { ob = JSON.parse(LS.get('budgets.v1')) || {}; } catch (e) {}
+  if (old.length || Object.keys(ob).length) {
+    if (confirm(`Found ${old.length} expense(s) saved on this phone from before sync was on. Add them to the shared list?`)) {
+      old.forEach(x => store.add({ ...x, by: x.by || userName }).catch(console.error));
+      Object.entries(ob).forEach(([k, v]) => store.setBudget(k, v, userName).catch(console.error));
+    }
+  }
+  LS.set('migrated.v2', '1');
+}
+setTimeout(offerMigration, 2500);
+
 // ---- UI ----
 $('date').value = today();
 $('month').value = today().slice(0, 7);
+$('cmpB').value = today().slice(0, 7);
+$('cmpA').value = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
 [...$('category').options].forEach(o => $('filterCat').add(new Option(o.value, o.value)));
 
 const CAT_COLOR = { Food:'#f59f00', Transport:'#339af0', Bills:'#845ef7', Shopping:'#f06595', Health:'#20c997', Entertainment:'#fab005', Miscellaneous:'#fa5252', Other:'#fa5252' };
@@ -280,7 +331,12 @@ const isMisc = c => c === MISC || c === 'Other'; // 'Other' = older entries
 function monthItems(m) { return items.filter(x => (x.date || '').startsWith(m)); }
 const sumOf = a => a.reduce((s, x) => s + (Number(x.amount) || 0), 0);
 
+const curMonth = () => today().slice(0, 7);
+const validMonth = v => /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
+function shiftMonth(m, d) { const [y, mo] = m.split('-').map(Number); const t = new Date(y, mo - 1 + d, 1); return `${t.getFullYear()}-${pad(t.getMonth() + 1)}`; }
+
 function render() {
+  if (!validMonth($('month').value)) $('month').value = curMonth(); // cleared field -> fall back to this month
   const m = $('month').value, cat = $('filterCat').value;
   const mi = monthItems(m);
   const spent = sumOf(mi);
@@ -385,17 +441,39 @@ function renderAnalysis(m, mi, spent, budget) {
     `<div style="margin-top:8px"><div class="row" style="justify-content:space-between;margin:0"><span><span class="dot" style="background:${PERSON_COLORS[i % 4]}"></span>${esc(k)}</span><span>${fmt(v)} · ${Math.round(v / spent * 100)}%</span></div><div class="bar" style="width:${v / maxP * 100}%;background:${PERSON_COLORS[i % 4]}"></div></div>`
   ).join('') || '<div class="empty">No data.</div>';
 
-  // last 6 months
-  const [cy, cm] = m.split('-').map(Number);
+  // month history: last 12 months that have data (tap to open)
   const rows = [];
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(cy, cm - 1 - i, 1);
-    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+  for (let i = 0; i < 12; i++) {
+    const key = shiftMonth(m, -i);
     const its = monthItems(key);
-    rows.push({ key, spent: sumOf(its), misc: sumOf(its.filter(x => isMisc(x.category))), budget: budgets[key], n: its.length });
+    const bd = budgets[key];
+    if (its.length || typeof bd === 'number' || key === m) rows.push({ key, spent: sumOf(its), misc: sumOf(its.filter(x => isMisc(x.category))), budget: bd, n: its.length });
   }
   $('history').innerHTML = `<table><tr><th>Month</th><th>Budget</th><th>Spent</th><th>Misc</th><th>Left</th></tr>` +
-    rows.map(r => `<tr><td>${monthLabel(r.key)}</td><td>${typeof r.budget === 'number' ? fmt(r.budget) : '–'}</td><td>${r.n ? fmt(r.spent) : '–'}</td><td>${r.n ? fmt(r.misc) : '–'}</td><td class="${typeof r.budget !== 'number' ? '' : r.budget - r.spent < 0 ? 'neg' : 'pos'}">${typeof r.budget === 'number' ? fmt(r.budget - r.spent) : '–'}</td></tr>`).join('') + '</table>';
+    rows.map(r => `<tr class="go${r.key === m ? ' sel' : ''}" data-month="${r.key}"><td>${monthLabel(r.key)}</td><td>${typeof r.budget === 'number' ? fmt0(r.budget) : '–'}</td><td>${r.n ? fmt0(r.spent) : '–'}</td><td>${r.n ? fmt0(r.misc) : '–'}</td><td class="${typeof r.budget !== 'number' ? '' : r.budget - r.spent < 0 ? 'neg' : 'pos'}">${typeof r.budget === 'number' ? fmt0(r.budget - r.spent) : '–'}</td></tr>`).join('') + '</table>';
+  renderCompare();
+}
+
+function renderCompare() {
+  const A = $('cmpA').value, B = $('cmpB').value;
+  if (!validMonth(A) || !validMonth(B)) { $('cmpOut').innerHTML = '<div class="empty">Pick two months.</div>'; return; }
+  const ia = monthItems(A), ib = monthItems(B);
+  const sumBy = its => its.reduce((o, x) => (o[x.category] = (o[x.category] || 0) + (Number(x.amount) || 0), o), {});
+  const ca = sumBy(ia), cb = sumBy(ib);
+  const cats = [...new Set([...Object.keys(ca), ...Object.keys(cb)])].sort((x, y) => ((cb[y] || 0) + (ca[y] || 0)) - ((cb[x] || 0) + (ca[x] || 0)));
+  const delta = (a, b, neutral) => {
+    const d = b - a;
+    if (!d) return '<td>–</td>';
+    const pct = a ? `<br><small>${Math.round(Math.abs(d) / a * 100)}%</small>` : '';
+    return `<td class="${neutral ? '' : d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${fmt0(Math.abs(d))}${pct}</td>`;
+  };
+  const row = (label, a, b, bold, neutral) => `<tr${bold ? ' style="font-weight:700"' : ''}><td>${label}</td><td>${fmt0(a)}</td><td>${fmt0(b)}</td>${delta(a, b, neutral)}</tr>`;
+  const ta = sumOf(ia), tb = sumOf(ib);
+  $('cmpOut').innerHTML = `<table style="margin-top:8px"><tr><th>Category</th><th>${monthLabel(A)}</th><th>${monthLabel(B)}</th><th>Change</th></tr>` +
+    cats.map(c => row(`<span class="dot" style="background:${catColor(c)}"></span>${esc(c)}`, ca[c] || 0, cb[c] || 0)).join('') +
+    row('Total', ta, tb, true) +
+    (typeof budgets[A] === 'number' || typeof budgets[B] === 'number' ? row('Budget', budgets[A] || 0, budgets[B] || 0, false, true) : '') +
+    `</table><div class="meta" style="margin-top:6px">▲ red = spent more in ${monthLabel(B)}, ▼ green = spent less.</div>`;
 }
 
 $('setupForm').addEventListener('submit', e => {
@@ -409,9 +487,12 @@ $('settings').addEventListener('click', () => { $('setup').hidden = false; $('se
 $('form').addEventListener('submit', async e => {
   e.preventDefault();
   if (!userName) { $('setup').hidden = false; $('userName').focus(); return; }
-  const x = { id: uid(), note: $('note').value.trim(), amount: parseFloat($('amount').value), category: $('category').value, date: $('date').value, by: userName };
+  if (!store) { alert('Still connecting – please wait a moment and tap Add again.'); return; }
+  const note = $('note').value.trim(), amt = $('amount').value;
+  const x = { id: uid(), note, amount: parseFloat(amt), category: $('category').value, date: $('date').value, by: userName };
+  if (!note || !(x.amount > 0) || !x.date) return;
   $('note').value = ''; $('amount').value = ''; $('note').focus();
-  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); }
+  try { await store.add(x); } catch (err) { console.error(err); setStatus('error'); $('note').value = note; $('amount').value = amt; alert('Could not save this expense. Please try again.'); }
 });
 $('list').addEventListener('click', async e => {
   const id = e.target.dataset.id;
@@ -419,10 +500,21 @@ $('list').addEventListener('click', async e => {
   try { await store.remove(id); } catch (err) { console.error(err); setStatus('error'); }
 });
 $('month').addEventListener('change', () => { $('budgetInput').value = ''; render(); });
+$('prevM').addEventListener('click', () => { $('month').value = shiftMonth($('month').value || curMonth(), -1); $('budgetInput').value = ''; render(); });
+$('nextM').addEventListener('click', () => { $('month').value = shiftMonth($('month').value || curMonth(), 1); $('budgetInput').value = ''; render(); });
+$('cmpA').addEventListener('change', renderCompare);
+$('cmpB').addEventListener('change', renderCompare);
+$('history').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-month]');
+  if (!tr) return;
+  $('month').value = tr.dataset.month; $('budgetInput').value = ''; render();
+  scrollTo({ top: 0, behavior: 'smooth' });
+});
 $('budgetSave').addEventListener('click', async () => {
   const v = parseFloat($('budgetInput').value);
   if (!(v >= 0)) { alert('Enter the budget amount for this month.'); return; }
   if (!userName) { $('setup').hidden = false; $('userName').focus(); return; }
+  if (!store) { alert('Still connecting – try again in a moment.'); return; }
   try { await store.setBudget($('month').value, v, userName); } catch (err) { console.error(err); setStatus('error'); }
 });
 $('filterCat').addEventListener('change', render);
@@ -433,12 +525,12 @@ $('share').addEventListener('click', async () => {
   catch (e) { prompt('Copy this invite link:', link); }
 });
 $('export').addEventListener('click', () => {
-  const m = $('month').value, mi = monthItems(m).sort((a, b) => a.date.localeCompare(b.date));
-  const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+  if (!validMonth($('month').value)) return;
+  const m = $('month').value, mi = monthItems(m).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const spent = sumOf(mi), budget = budgets[m], hasB = typeof budget === 'number';
   const misc = sumOf(mi.filter(x => isMisc(x.category)));
-  const by = {}; mi.forEach(x => by[x.category] = (by[x.category] || 0) + x.amount);
-  const lines = [
+  const by = {}; mi.forEach(x => by[x.category] = (by[x.category] || 0) + (Number(x.amount) || 0));
+  saveCsv(`expenses-${m}.csv`, [
     `Monthly report,${m}`,
     `Budget,${hasB ? budget : ''}`,
     `Total spent,${spent}`,
@@ -446,14 +538,19 @@ $('export').addEventListener('click', () => {
     `Miscellaneous spent,${misc}`,
     `Miscellaneous % of spending,${spent ? (misc / spent * 100).toFixed(1) : 0}`,
     '', 'Category,Spent,% of spending',
-    ...Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${q(k)},${v},${(v / spent * 100).toFixed(1)}`),
+    ...Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${csvq(k)},${v},${spent ? (v / spent * 100).toFixed(1) : 0}`),
     '', 'Date,Note,Category,Amount,Added by',
-    ...mi.map(x => [x.date, q(x.note), q(x.category), x.amount, q(x.by || '')].join(','))
-  ];
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv' }));
-  a.download = `expenses-${m}.csv`;
-  a.click();
+    ...mi.map(x => [x.date, csvq(x.note), csvq(x.category), x.amount, csvq(x.by || '')].join(','))
+  ]);
+});
+$('exportAll').addEventListener('click', () => {
+  const all = items.slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  saveCsv(`expenses-ALL-${today()}.csv`, [
+    'Month,Budget',
+    ...Object.entries(budgets).sort().map(([k, v]) => `${k},${v}`),
+    '', 'Date,Note,Category,Amount,Added by',
+    ...all.map(x => [x.date, csvq(x.note), csvq(x.category), x.amount, csvq(x.by || '')].join(','))
+  ]);
 });
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
