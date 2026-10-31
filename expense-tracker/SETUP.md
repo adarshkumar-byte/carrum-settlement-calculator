@@ -39,3 +39,8 @@ Works on Android (Chrome) and iPhone (Safari). Both phones see one shared list, 
 4. **Month end:** tap **Export month (CSV)**. The file `expenses-YYYY-MM.csv` opens in Excel/Sheets with a summary (budget, spent, remaining, miscellaneous), a per-category table, and every expense. Export each month and compare the Miscellaneous figures.
 
 If you already published the Firestore rules, re-publish `firestore.rules`; it now also covers budgets.
+
+## Updating the security rules
+`firestore.rules` was corrected (the first version blocked reads). If you published an older copy, open
+Firebase console → Firestore Database → **Rules**, replace everything with the current `firestore.rules`, and **Publish**.
+The rules are tested against the Firebase emulator: reads, writes, deletes, validation and the 8-character family-code minimum.

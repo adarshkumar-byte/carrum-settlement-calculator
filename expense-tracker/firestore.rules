@@ -1,21 +1,28 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Only the expenses under a family code, and only with a reasonably long code.
+
+    // Expenses, income and transfers for one family. The family code (document path
+    // segment) is the shared secret; it must be 8-60 characters.
     match /families/{code}/expenses/{id} {
-      allow read, write: if code.size() >= 8
-        && (request.method == 'delete' || (
-             request.resource.data.keys().hasOnly(['note','amount','category','date','by','createdAt'])
-             && request.resource.data.amount is number
-             && request.resource.data.note is string
-             && request.resource.data.note.size() <= 100));
+      allow read, delete: if code.size() >= 8 && code.size() <= 60;
+      allow create, update: if code.size() >= 8 && code.size() <= 60
+        && request.resource.data.keys().hasOnly(['note','amount','category','date','by','createdAt'])
+        && request.resource.data.keys().hasAll(['note','amount','category','date','by'])
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.note is string
+        && request.resource.data.note.size() <= 100;
     }
 
+    // One budget document per month (document id like 2026-10).
     match /families/{code}/budgets/{month} {
-      allow read, write: if code.size() >= 8
-        && (request.method == 'delete' || (
-             request.resource.data.keys().hasOnly(['amount','by'])
-             && request.resource.data.amount is number));
+      allow read, delete: if code.size() >= 8 && code.size() <= 60;
+      allow create, update: if code.size() >= 8 && code.size() <= 60
+        && request.resource.data.keys().hasOnly(['amount','by'])
+        && request.resource.data.keys().hasAll(['amount','by'])
+        && request.resource.data.amount is number
+        && request.resource.data.amount >= 0;
     }
   }
 }
